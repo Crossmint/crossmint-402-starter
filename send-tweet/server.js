@@ -91,7 +91,7 @@ async function getTokenDecimals(provider, tokenAddress, fallbackDecimals) {
 const agentCard = {
   name: "Tweet Agent",
   description: "Agent that sends tweets on X/Twitter for payment",
-  url: "http://localhost:10001",
+  url: process.env.AGENT_URL || "http://localhost:10001",
   version: "0.1.0",
   defaultInputModes: ["text", "text/plain"],
   defaultOutputModes: ["text", "text/plain"],

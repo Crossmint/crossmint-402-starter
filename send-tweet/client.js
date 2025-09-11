@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { A2AClient } from "@a2a-js/sdk/client";
 import { v4 as uuidv4 } from "uuid";
 import { Wallet, hexlify, randomBytes, JsonRpcProvider } from "ethers";
