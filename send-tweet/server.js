@@ -87,11 +87,18 @@ async function getTokenDecimals(provider, tokenAddress, fallbackDecimals) {
   return fallbackDecimals;
 }
 
+// Helper function to ensure URL has protocol
+function ensureProtocol(url) {
+  if (!url) return "http://localhost:10001";
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `https://${url}`;
+}
+
 // Create a minimal AgentCard advertising the x402 extension
 const agentCard = {
   name: "Tweet Agent",
   description: "Agent that sends tweets on X/Twitter for payment",
-  url: process.env.AGENT_URL || "http://localhost:10001",
+  url: ensureProtocol(process.env.AGENT_URL),
   version: "0.1.0",
   defaultInputModes: ["text", "text/plain"],
   defaultOutputModes: ["text", "text/plain"],
