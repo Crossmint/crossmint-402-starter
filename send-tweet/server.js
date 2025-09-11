@@ -1,0 +1,512 @@
+import express from "express";
+import { JsonRpcProvider, Wallet, Contract, Signature, verifyTypedData } from "ethers";
+import { DefaultRequestHandler, InMemoryTaskStore } from "@a2a-js/sdk/server";
+import { A2AExpressApp } from "@a2a-js/sdk/server/express";
+import { TwitterApi } from "twitter-api-v2";
+
+// x402 extension constants per spec
+const X402_EXTENSION_URI = "https://github.com/google-a2a/a2a-x402/v0.1";
+const X402_STATUS_KEY = "x402.payment.status";
+const X402_REQUIRED_KEY = "x402.payment.required";
+const X402_PAYLOAD_KEY = "x402.payment.payload";
+const X402_RECEIPTS_KEY = "x402.payment.receipts";
+const X402_ERROR_KEY = "x402.payment.error";
+
+// Merchant/token configuration (env configurable)
+const MERCHANT_WALLET = process.env.MERCHANT_PRIVATE_KEY ? new Wallet(process.env.MERCHANT_PRIVATE_KEY) : undefined;
+const MERCHANT_ADDRESS = MERCHANT_WALLET ? MERCHANT_WALLET.address : undefined; // the payee/recipient
+const ASSET_ADDRESS = process.env.ASSET_ADDRESS || "0x036CbD53842c5426634e7929541eC2318f3dCF7e"; // usdc on base sepolia
+const X402_NETWORK = process.env.X402_NETWORK || "base-sepolia"; // e.g., "base" or "base-sepolia"
+const PRICE_USDC = process.env.PRICE_USDC || "1"; // decimal string, e.g., "1" or "1.50"
+const PRICE_ATOMIC = process.env.PRICE_ATOMIC; // optional override in atomic units string
+const MAX_TIMEOUT_SECONDS = parseInt(process.env.MAX_TIMEOUT_SECONDS || "600", 10);
+
+// On-chain settlement configuration (set these for a fully functional demo)
+const RPC_URL = process.env.RPC_URL; // e.g. Base mainnet/sepolia RPC
+const MERCHANT_PRIVATE_KEY = process.env.MERCHANT_PRIVATE_KEY; // merchant signer key
+
+// Twitter API configuration
+const TWITTER_CONSUMER_KEY = process.env.TWITTER_CONSUMER_KEY;
+const TWITTER_CONSUMER_SECRET = process.env.TWITTER_CONSUMER_SECRET;
+const TWITTER_ACCESS_TOKEN = process.env.TWITTER_ACCESS_TOKEN;
+const TWITTER_ACCESS_TOKEN_SECRET = process.env.TWITTER_ACCESS_TOKEN_SECRET;
+
+// Minimal USDC v2 EIP-3009 ABI
+const USDC_EIP3009_ABI = [
+  "function transferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce,uint8 v,bytes32 r,bytes32 s) external returns (bool)"
+];
+const ERC20_METADATA_ABI = [
+  "function name() view returns (string)",
+  "function version() view returns (string)",
+  "function decimals() view returns (uint8)"
+];
+
+async function getDomain(provider, tokenAddress) {
+  const net = await provider.getNetwork();
+  const token = new Contract(tokenAddress, ERC20_METADATA_ABI, provider);
+  let name = "USD Coin";
+  let version = "2";
+  try {
+    name = await token.name();
+  } catch (e) {
+    console.warn(`[server] Failed to fetch token name for ${tokenAddress}. Using default.`, e?.message || e);
+  }
+  try {
+    const v = await token.version();
+    if (typeof v === "string" && v.length > 0) version = v;
+  } catch (e) {
+    console.warn(`[server] Failed to fetch token version for ${tokenAddress}. Using default.`, e?.message || e);
+  }
+  return {
+    name,
+    version,
+    chainId: Number(net.chainId),
+    verifyingContract: tokenAddress,
+  };
+}
+
+function decimalToAtomic(decimalStr, decimals) {
+  const [whole, frac = ""] = String(decimalStr).split(".");
+  const fracPadded = (frac + "0".repeat(decimals)).slice(0, decimals);
+  const combined = `${whole}${fracPadded}`.replace(/^0+/, "");
+  return combined.length ? combined : "0";
+}
+
+async function getTokenDecimals(provider, tokenAddress, fallbackDecimals) {
+  try {
+    const token = new Contract(tokenAddress, ERC20_METADATA_ABI, provider);
+    const d = await token.decimals();
+    const n = Number(d);
+    if (!Number.isNaN(n) && n > 0 && n < 255) return n;
+  } catch (e) {
+    console.warn(`[server] Could not fetch token decimals for ${tokenAddress}, using fallback.`, e?.message || e);
+  }
+  return fallbackDecimals;
+}
+
+// Create a minimal AgentCard advertising the x402 extension
+const agentCard = {
+  name: "Tweet Agent",
+  description: "Agent that sends tweets on X/Twitter for payment",
+  url: "http://localhost:10001",
+  version: "0.1.0",
+  defaultInputModes: ["text", "text/plain"],
+  defaultOutputModes: ["text", "text/plain"],
+  capabilities: {
+    streaming: true,
+    extensions: [
+      {
+        uri: X402_EXTENSION_URI,
+        description: "Supports payments using the x402 protocol for on-chain settlement.",
+        required: true,
+      },
+    ],
+  },
+};
+
+// Initialize Twitter client
+function createTwitterClient() {
+  if (!TWITTER_CONSUMER_KEY || !TWITTER_CONSUMER_SECRET || !TWITTER_ACCESS_TOKEN || !TWITTER_ACCESS_TOKEN_SECRET) {
+    console.error("[server] Twitter API credentials are required. Set TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET, TWITTER_ACCESS_TOKEN, and TWITTER_ACCESS_TOKEN_SECRET in your environment.");
+    return null;
+  }
+
+  return new TwitterApi({
+    appKey: TWITTER_CONSUMER_KEY,
+    appSecret: TWITTER_CONSUMER_SECRET,
+    accessToken: TWITTER_ACCESS_TOKEN,
+    accessSecret: TWITTER_ACCESS_TOKEN_SECRET,
+  });
+}
+
+// Simple executor that triggers payment for any request and sends tweets
+class MerchantExecutor {
+  constructor(provider, signer) {
+    this.provider = provider;
+    this.signer = signer;
+    this.twitterClient = createTwitterClient();
+  }
+
+  async execute(requestContext, eventBus) {
+    const { taskId, contextId, userMessage } = requestContext;
+    const meta = (userMessage && userMessage.metadata) || {};
+
+    console.log("[server] execute start", {
+      taskId,
+      contextId,
+      status: meta[X402_STATUS_KEY] || null,
+      hasPayload: Boolean(meta[X402_PAYLOAD_KEY]),
+    });
+
+    if (meta[X402_STATUS_KEY] === "payment-submitted" && taskId) {
+      console.log("[server] payment-submitted received", {
+        taskId,
+        contextId,
+      });
+
+      // Extract EIP-3009 fields from payload
+      const payload = meta[X402_PAYLOAD_KEY];
+      const selected = payload?.payload || {};
+      const asset = selected.asset || ASSET_ADDRESS;
+      const from = selected.from;
+      const to = selected.payTo || MERCHANT_ADDRESS;
+      const value = selected.value;
+      const validAfter = selected.validAfter || 0;
+      const validBefore = selected.validBefore;
+      const nonce = selected.nonce;
+      const sigHex = selected.signature;
+      if (!from || !to || !value || !validBefore || !nonce || !sigHex) {
+        console.error("[server] missing required EIP-3009 fields in payload");
+        eventBus.publish({
+          kind: "status-update",
+          taskId,
+          contextId,
+          status: {
+            state: "failed",
+            message: {
+              kind: "message",
+              role: "agent",
+              parts: [{ kind: "text", text: "Payment verification failed: invalid payload." }],
+              metadata: { [X402_STATUS_KEY]: "payment-failed", [X402_ERROR_KEY]: "INVALID_AMOUNT" },
+            },
+            timestamp: new Date().toISOString(),
+          },
+          final: true,
+        });
+        eventBus.finished();
+        return;
+      }
+
+      // Verify EIP-712 signature (USDC v2 EIP-3009 TransferWithAuthorization)
+      const domain = await getDomain(this.provider, asset);
+      const types = {
+        TransferWithAuthorization: [
+          { name: "from", type: "address" },
+          { name: "to", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "validAfter", type: "uint256" },
+          { name: "validBefore", type: "uint256" },
+          { name: "nonce", type: "bytes32" },
+        ],
+      };
+      const message = { from, to, value, validAfter, validBefore, nonce };
+
+      let recovered;
+      try {
+        recovered = verifyTypedData(domain, types, message, sigHex);
+      } catch (e) {
+        console.error("[server] verifyTypedData error", e);
+      }
+      if (!recovered || recovered.toLowerCase() !== String(from).toLowerCase()) {
+        console.error("[server] signature recovery mismatch", { recovered, from });
+        eventBus.publish({
+          kind: "status-update",
+          taskId,
+          contextId,
+          status: {
+            state: "failed",
+            message: {
+              kind: "message",
+              role: "agent",
+              parts: [{ kind: "text", text: "Payment verification failed: invalid signature." }],
+              metadata: { [X402_STATUS_KEY]: "payment-failed", [X402_ERROR_KEY]: "INVALID_SIGNATURE" },
+            },
+            timestamp: new Date().toISOString(),
+          },
+          final: true,
+        });
+        eventBus.finished();
+        return;
+      }
+
+      // Publish payment-pending before on-chain settlement
+      eventBus.publish({
+        kind: "status-update",
+        taskId,
+        contextId,
+        status: {
+          state: "working",
+          message: {
+            kind: "message",
+            role: "agent",
+            parts: [{ kind: "text", text: "Payment authorization verified. Settling on-chain..." }],
+            metadata: { [X402_STATUS_KEY]: "payment-pending" },
+          },
+        },
+        final: false,
+      });
+      console.log("[server] payment-pending published", { taskId });
+
+      if (!this.provider || !this.signer) {
+        console.error("[server] RPC_URL or MERCHANT_PRIVATE_KEY not set. Cannot settle on-chain.");
+        eventBus.publish({
+          kind: "status-update",
+          taskId,
+          contextId,
+          status: {
+            state: "failed",
+            message: {
+              kind: "message",
+              role: "agent",
+              parts: [{ kind: "text", text: "Settlement configuration missing (RPC_URL or MERCHANT_PRIVATE_KEY)." }],
+              metadata: { [X402_STATUS_KEY]: "payment-failed", [X402_ERROR_KEY]: "SETTLEMENT_FAILED" },
+            },
+            timestamp: new Date().toISOString(),
+          },
+          final: true,
+        });
+        eventBus.finished();
+        return;
+      }
+
+      // Submit on-chain settlement: transferWithAuthorization
+      const contract = new Contract(asset, USDC_EIP3009_ABI, this.signer);
+      const sig = Signature.from(sigHex);
+      let mined;
+      try {
+        const tx = await contract.transferWithAuthorization(
+          from,
+          to,
+          value,
+          validAfter,
+          validBefore,
+          nonce,
+          sig.v,
+          sig.r,
+          sig.s
+        );
+        console.log("[server] settlement tx sent", { hash: tx.hash });
+        mined = await tx.wait();
+        console.log("[server] settlement tx mined", { hash: mined?.hash });
+      } catch (e) {
+        console.error("[server] settlement failed", e?.message || e);
+        eventBus.publish({
+          kind: "status-update",
+          taskId,
+          contextId,
+          status: {
+            state: "failed",
+            message: {
+              kind: "message",
+              role: "agent",
+              parts: [{ kind: "text", text: "Payment settlement failed." }],
+              metadata: { [X402_STATUS_KEY]: "payment-failed", [X402_ERROR_KEY]: "SETTLEMENT_FAILED" },
+            },
+            timestamp: new Date().toISOString(),
+          },
+          final: true,
+        });
+        eventBus.finished();
+        return;
+      }
+
+      // Append receipts history
+      const prevReceipts = requestContext?.task?.status?.message?.metadata?.[X402_RECEIPTS_KEY] || [];
+      const receipt = {
+        success: true,
+        transaction: mined?.hash || tx.hash,
+        network: X402_NETWORK,
+        payer: from,
+      };
+
+      // Working update with completed payment and receipt
+      eventBus.publish({
+        kind: "status-update",
+        taskId,
+        contextId,
+        status: {
+          state: "working",
+          message: {
+            kind: "message",
+            role: "agent",
+            parts: [{ kind: "text", text: "Payment successful. Processing your tweet..." }],
+            metadata: {
+              [X402_STATUS_KEY]: "payment-completed",
+              [X402_RECEIPTS_KEY]: [...prevReceipts, receipt],
+            },
+          },
+        },
+        final: false,
+      });
+      console.log("[server] published working with payment-completed", { taskId });
+
+      // Extract tweet text from the original user message
+      let tweetText = "Hello from the A2A x402 agent!";
+      if (userMessage && userMessage.parts && userMessage.parts.length > 0) {
+        const textPart = userMessage.parts.find(part => part.kind === "text");
+        if (textPart && textPart.text) {
+          tweetText = textPart.text;
+        }
+      }
+
+      // Send the tweet
+      let tweetResult = null;
+      let tweetError = null;
+      if (this.twitterClient) {
+        try {
+          console.log("[server] sending tweet:", tweetText);
+          tweetResult = await this.twitterClient.v2.tweet(tweetText);
+          console.log("[server] tweet sent successfully:", tweetResult.data);
+        } catch (error) {
+          console.error("[server] failed to send tweet:", error);
+          tweetError = error.message || "Unknown error occurred while sending tweet";
+        }
+      } else {
+        tweetError = "Twitter API client not initialized. Check your credentials.";
+      }
+
+      // Final completion (include payment metadata, receipts, and tweet result)
+      let completionMessage;
+      let artifacts = [];
+
+      if (tweetResult) {
+        completionMessage = `Tweet sent successfully! Tweet ID: ${tweetResult.data.id}`;
+        artifacts = [{
+          kind: "artifact",
+          type: "application/json",
+          title: "Tweet Result",
+          content: JSON.stringify(tweetResult.data, null, 2),
+        }];
+      } else {
+        completionMessage = `Payment successful but failed to send tweet: ${tweetError}`;
+      }
+
+      eventBus.publish({
+        kind: "status-update",
+        taskId,
+        contextId,
+        status: {
+          state: "completed",
+          message: {
+            kind: "message",
+            role: "agent",
+            parts: [{ kind: "text", text: completionMessage }],
+            metadata: {
+              [X402_STATUS_KEY]: "payment-completed",
+              [X402_RECEIPTS_KEY]: [...prevReceipts, receipt],
+            },
+          },
+          timestamp: new Date().toISOString(),
+        },
+        artifacts: artifacts,
+        final: true,
+      });
+      console.log("[server] published completed with receipt and tweet result", { receipt, tweetResult });
+      eventBus.finished();
+      return;
+    }
+
+    console.log("[server] publishing payment-required", { taskId, contextId });
+
+    // Default path: require payment first — publish a Task and finish
+    // Prepare EIP-712 domain for the token so the client can sign with the exact same fields
+    let domainForClient = undefined;
+    let tokenDecimals = 6;
+    try {
+      if (this.provider) {
+        domainForClient = await getDomain(this.provider, ASSET_ADDRESS);
+        tokenDecimals = await getTokenDecimals(this.provider, ASSET_ADDRESS, 6);
+      }
+    } catch (e) {
+      console.warn("[server] failed to derive token domain; client will use defaults", e?.message || e);
+    }
+
+    eventBus.publish({
+      kind: "task",
+      id: taskId,
+      contextId,
+      status: {
+        state: "input-required",
+        message: {
+          kind: "message",
+          role: "agent",
+          parts: [{ kind: "text", text: "Payment is required to send your tweet." }],
+          metadata: {
+            [X402_STATUS_KEY]: "payment-required",
+            [X402_REQUIRED_KEY]: {
+              x402Version: 1,
+              accepts: [
+                {
+                  scheme: "exact",
+                  network: X402_NETWORK,
+                  resource: "https://api.x.com/2/tweets",
+                  description: "Send a tweet on X/Twitter",
+                  mimeType: "application/json",
+                  outputSchema: {},
+                  asset: ASSET_ADDRESS,
+                  payTo: MERCHANT_ADDRESS,
+                  maxAmountRequired: PRICE_ATOMIC || decimalToAtomic(PRICE_USDC, tokenDecimals),
+                  maxTimeoutSeconds: MAX_TIMEOUT_SECONDS,
+                  extra: { domain: domainForClient },
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+    eventBus.finished();
+    console.log("[server] published input-required and finished", { taskId, contextId });
+  }
+
+  async cancelTask(taskId, eventBus) {
+    // contextId is not available here; publish without it
+    console.log("[server] cancelTask", { taskId });
+    eventBus.publish({
+      kind: "status-update",
+      taskId,
+      status: { state: "canceled", timestamp: new Date().toISOString() },
+      final: true,
+    });
+    eventBus.finished();
+    console.log("[server] cancellation published", { taskId });
+  }
+}
+
+async function main() {
+  // Validate critical configuration before starting the server
+  if (!MERCHANT_PRIVATE_KEY) {
+    console.error("[server] MERCHANT_PRIVATE_KEY is required. Set it in your environment.");
+    process.exit(1);
+  }
+  if (!RPC_URL) {
+    console.error("[server] RPC_URL is required for settlement. Set it in your environment.");
+    process.exit(1);
+  }
+  if (!MERCHANT_ADDRESS) {
+    console.error("[server] MERCHANT_ADDRESS could not be derived from MERCHANT_PRIVATE_KEY.");
+    process.exit(1);
+  }
+
+  // Warn if Twitter credentials are missing
+  if (!TWITTER_CONSUMER_KEY || !TWITTER_CONSUMER_SECRET || !TWITTER_ACCESS_TOKEN || !TWITTER_ACCESS_TOKEN_SECRET) {
+    console.warn("[server] Twitter API credentials are missing. Tweets will not be sent. Set TWITTER_CONSUMER_KEY, TWITTER_CONSUMER_SECRET, TWITTER_ACCESS_TOKEN, and TWITTER_ACCESS_TOKEN_SECRET in your environment.");
+  }
+
+  const app = express();
+  app.use(express.json());
+  // Echo extension activation header on all responses
+  app.use((req, res, next) => {
+    res.setHeader("X-A2A-Extensions", X402_EXTENSION_URI);
+    next();
+  });
+
+  const taskStore = new InMemoryTaskStore();
+  const sharedProvider = RPC_URL ? new JsonRpcProvider(RPC_URL) : undefined;
+  const sharedSigner = MERCHANT_PRIVATE_KEY && sharedProvider ? new Wallet(MERCHANT_PRIVATE_KEY, sharedProvider) : undefined;
+  const executor = new MerchantExecutor(sharedProvider, sharedSigner);
+  const requestHandler = new DefaultRequestHandler(agentCard, taskStore, executor);
+
+  const a2a = new A2AExpressApp(requestHandler);
+  a2a.setupRoutes(app);
+
+  const port = process.env.PORT || 10001;
+  app.listen(port, () => {
+    console.log(`Merchant server listening on http://localhost:${port}`);
+  });
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
