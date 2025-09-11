@@ -16,13 +16,23 @@
       button { background: #6d5cff; color: white; padding: 10px 16px; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; margin-top: 12px; }
       button:disabled { opacity: .6; cursor: not-allowed; }
       .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; overflow-x: auto; }
       .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #232332; border: 1px solid #343448; font-size: 12px; margin: 0 8px 8px 0; }
       .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
       .ok { color: #68f09b }
       .warn { color: #ffd166 }
       .err { color: #ff6b6b }
       a { color: #9bbcff; }
+      @media (max-width: 860px) {
+        body { padding: 16px; }
+        .container { max-width: 100%; }
+      }
+      @media (max-width: 720px) {
+        h1 { font-size: 22px; }
+        .grid, .row { grid-template-columns: 1fr; }
+        button { width: 100%; }
+        textarea { min-height: 90px; }
+      }
     </style>
   </head>
   <body>
@@ -31,6 +41,17 @@
         <h1>Joyce Puppet</h1>
         <p class="sub">A wholesome alter ego for Joyce — demoing Agent↔Agent with the x402 extension. Bring your tweet, add an optional image URL, and let the puppet do the rest.</p>
         <div id="env" class="mono"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <h3 style="margin-top:0">How it works</h3>
+        <div class="mono">
+          <div class="pill">A2A</div>
+          <div class="pill">x402</div>
+          <div class="pill">EIP-712</div>
+          <div class="pill">EIP-3009</div>
+          <p>1) The app sends your message to the Agent with the <code>X-A2A-Extensions</code> header advertising x402.<br/>2) The Agent responds with <code>x402.payment.required</code> and an EIP-712 domain for USDC.<br/>3) Your local key signs an EIP-3009 <code>transferWithAuthorization</code> payload.<br/>4) The app submits the signed payload with <code>x402.payment.submitted</code>.<br/>5) The Agent settles on-chain, then posts the tweet via the Twitter API.</p>
+        </div>
       </div>
 
       <div class="grid">
@@ -71,16 +92,7 @@
         </div>
       </div>
 
-      <div class="card" style="margin-top:16px">
-        <h3 style="margin-top:0">How it works</h3>
-        <div class="mono">
-          <div class="pill">A2A</div>
-          <div class="pill">x402</div>
-          <div class="pill">EIP-712</div>
-          <div class="pill">EIP-3009</div>
-          <p>1) The app sends your message to the Agent with the <code>X-A2A-Extensions</code> header advertising x402.<br/>2) The Agent responds with <code>x402.payment.required</code> and an EIP-712 domain for USDC.<br/>3) Your local key signs an EIP-3009 <code>transferWithAuthorization</code> payload.<br/>4) The app submits the signed payload with <code>x402.payment.submitted</code>.<br/>5) The Agent settles on-chain, then posts the tweet via the Twitter API.</p>
-        </div>
-      </div>
+
     </div>
 
     <script>
