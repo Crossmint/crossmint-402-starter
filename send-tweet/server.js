@@ -31,6 +31,9 @@ const TWITTER_CONSUMER_SECRET = process.env.TWITTER_CONSUMER_SECRET;
 const TWITTER_ACCESS_TOKEN = process.env.TWITTER_ACCESS_TOKEN;
 const TWITTER_ACCESS_TOKEN_SECRET = process.env.TWITTER_ACCESS_TOKEN_SECRET;
 
+// Default image URL (optional)
+const DEFAULT_IMAGE_URL = "https://photographylife.com/wp-content/uploads/2023/05/Nikon-Z8-Official-Samples-00016.jpg";
+
 // Minimal USDC v2 EIP-3009 ABI
 const USDC_EIP3009_ABI = [
   "function transferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce,uint8 v,bytes32 r,bytes32 s) external returns (bool)"
@@ -119,12 +122,36 @@ function createTwitterClient() {
   });
 }
 
+// Download image and upload to Twitter
+async function downloadAndUploadImage(twitterClient, imageUrl) {
+  try {
+    console.log("[server] downloading image from:", imageUrl);
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to download image: ${response.statusText}`);
+    }
+    
+    const imageBuffer = Buffer.from(await response.arrayBuffer());
+    console.log("[server] image downloaded, size:", imageBuffer.length, "bytes");
+    
+    console.log("[server] uploading image to Twitter");
+    const mediaId = await twitterClient.v1.uploadMedia(imageBuffer, { mimeType: 'image/jpeg' });
+    console.log("[server] image uploaded to Twitter, media ID:", mediaId);
+    
+    return mediaId;
+  } catch (error) {
+    console.error("[server] failed to download/upload image:", error);
+    throw error;
+  }
+}
+
 // Simple executor that triggers payment for any request and sends tweets
 class MerchantExecutor {
   constructor(provider, signer) {
     this.provider = provider;
     this.signer = signer;
     this.twitterClient = createTwitterClient();
+    this.taskContent = new Map(); // Store original content for each task
   }
 
   async execute(requestContext, eventBus) {
@@ -330,26 +357,65 @@ class MerchantExecutor {
       });
       console.log("[server] published working with payment-completed", { taskId });
 
-      // Extract tweet text from the original user message
-      let tweetText = "Hello from the A2A x402 agent!";
-      if (userMessage && userMessage.parts && userMessage.parts.length > 0) {
-        const textPart = userMessage.parts.find(part => part.kind === "text");
-        if (textPart && textPart.text) {
-          tweetText = textPart.text;
-        }
+      // Extract tweet text and image URL from stored task content
+      const storedContent = this.taskContent.get(taskId);
+      const tweetText = storedContent?.tweetText;
+      const imageUrl = storedContent?.imageUrl;
+
+      if (!tweetText) {
+        console.error("[server] no tweet text available for task:", taskId);
+        eventBus.publish({
+          kind: "status-update",
+          taskId,
+          contextId,
+          status: {
+            state: "failed",
+            message: {
+              kind: "message",
+              role: "agent",
+              parts: [{ kind: "text", text: "Payment successful but no tweet text available." }],
+              metadata: { [X402_STATUS_KEY]: "payment-completed", [X402_ERROR_KEY]: "NO_TEXT_PROVIDED" },
+            },
+            timestamp: new Date().toISOString(),
+          },
+          final: true,
+        });
+        eventBus.finished();
+        return;
       }
 
-      // Send the tweet
+      // Send the tweet with optional image
       let tweetResult = null;
       let tweetError = null;
       if (this.twitterClient) {
         try {
-          console.log("[server] sending tweet:", tweetText);
-          tweetResult = await this.twitterClient.v2.tweet(tweetText);
+          let tweetOptions = {};
+          
+          // Upload image if provided
+          if (imageUrl) {
+            console.log("[server] sending tweet with image:", tweetText);
+            const mediaId = await downloadAndUploadImage(this.twitterClient, imageUrl);
+            tweetOptions.media = { media_ids: [mediaId] };
+          } else {
+            console.log("[server] sending text-only tweet:", tweetText);
+          }
+          
+          // Send tweet (with or without image)
+          tweetResult = await this.twitterClient.v2.tweet(tweetText, tweetOptions);
           console.log("[server] tweet sent successfully:", tweetResult.data);
         } catch (error) {
           console.error("[server] failed to send tweet:", error);
-          tweetError = error.message || "Unknown error occurred while sending tweet";
+          
+          // Provide more specific error messages for common issues
+          if (error.code === 403) {
+            tweetError = "Twitter API permission denied (403). Check your app has 'Read and Write' permissions and elevated access.";
+          } else if (error.code === 401) {
+            tweetError = "Twitter API authentication failed (401). Verify your API keys and tokens.";
+          } else if (error.code === 429) {
+            tweetError = "Twitter API rate limit exceeded (429). Please try again later.";
+          } else {
+            tweetError = `Twitter API error (${error.code || 'unknown'}): ${error.message || error}`;
+          }
         }
       } else {
         tweetError = "Twitter API client not initialized. Check your credentials.";
@@ -360,7 +426,9 @@ class MerchantExecutor {
       let artifacts = [];
 
       if (tweetResult) {
-        completionMessage = `Tweet sent successfully! Tweet ID: ${tweetResult.data.id}`;
+        completionMessage = imageUrl 
+          ? `Tweet with image sent successfully! Tweet ID: ${tweetResult.data.id}`
+          : `Tweet sent successfully! Tweet ID: ${tweetResult.data.id}`;
         artifacts = [{
           kind: "artifact",
           type: "application/json",
@@ -368,7 +436,9 @@ class MerchantExecutor {
           content: JSON.stringify(tweetResult.data, null, 2),
         }];
       } else {
-        completionMessage = `Payment successful but failed to send tweet: ${tweetError}`;
+        completionMessage = imageUrl 
+          ? `Payment successful but failed to send tweet with image: ${tweetError}`
+          : `Payment successful but failed to send tweet: ${tweetError}`;
       }
 
       eventBus.publish({
@@ -397,6 +467,51 @@ class MerchantExecutor {
     }
 
     console.log("[server] publishing payment-required", { taskId, contextId });
+
+    // Store the original message content for later use
+    if (userMessage) {
+      let tweetText = null;
+      let imageUrl = null;
+
+      // Extract tweet text from message parts (REQUIRED)
+      if (userMessage.parts && userMessage.parts.length > 0) {
+        const textPart = userMessage.parts.find(part => part.kind === "text");
+        if (textPart && textPart.text && textPart.text.trim()) {
+          tweetText = textPart.text.trim();
+        }
+      }
+
+      // Validate that tweet text is provided
+      if (!tweetText) {
+        console.error("[server] no tweet text provided");
+        eventBus.publish({
+          kind: "status-update",
+          taskId,
+          contextId,
+          status: {
+            state: "failed",
+            message: {
+              kind: "message",
+              role: "agent",
+              parts: [{ kind: "text", text: "No tweet text provided. Please provide text to tweet." }],
+              metadata: { [X402_ERROR_KEY]: "NO_TEXT_PROVIDED" },
+            },
+            timestamp: new Date().toISOString(),
+          },
+          final: true,
+        });
+        eventBus.finished();
+        return;
+      }
+
+      // Extract image URL from metadata (OPTIONAL)
+      if (userMessage.metadata && userMessage.metadata.imageUrl) {
+        imageUrl = userMessage.metadata.imageUrl;
+      }
+
+      this.taskContent.set(taskId, { tweetText, imageUrl });
+      console.log("[server] stored task content", { taskId, tweetText, imageUrl: imageUrl || "none" });
+    }
 
     // Default path: require payment first — publish a Task and finish
     // Prepare EIP-712 domain for the token so the client can sign with the exact same fields

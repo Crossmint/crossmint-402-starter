@@ -19,13 +19,20 @@ async function main() {
   };
   const client = await A2AClient.fromCardUrl(cardUrl, { fetchImpl: fetchWithExtension });
 
-  // Send initial message
+  // Get tweet configuration from environment or use defaults
+  const tweetText = process.env.TWEET_TEXT || "just a smol town gurlll, livin in a loooonelyyy world";
+  const imageUrl = process.env.IMAGE_URL || "https://photographylife.com/wp-content/uploads/2023/05/Nikon-Z8-Official-Samples-00016.jpg";
+
+  // Send initial message with tweet content and image URL
   const params = {
     message: {
       messageId: uuidv4(),
       role: "user",
-      parts: [{ kind: "text", text: "Hello, merchant!" }],
+      parts: [{ kind: "text", text: tweetText }],
       kind: "message",
+      metadata: {
+        imageUrl: imageUrl
+      }
     },
     configuration: {
       blocking: true,
