@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Joyce Puppet — A2A x402 Demo</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; margin: 0; padding: 24px; background: #0c0c0f; color: #f4f4f7; }
+      .container { max-width: 860px; margin: 0 auto; }
+      .card { background: #15151b; border: 1px solid #272733; border-radius: 12px; padding: 20px; }
+      h1 { margin: 0 0 6px; font-size: 28px; }
+      p.sub { margin: 0 0 16px; color: #b9b9c6; }
+      label { display: block; margin: 12px 0 6px; font-weight: 600; }
+      input[type="text"], textarea { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #2b2b36; background: #0f0f15; color: #e9e9f0; }
+      textarea { min-height: 100px; resize: vertical; }
+      button { background: #6d5cff; color: white; padding: 10px 16px; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; margin-top: 12px; }
+      button:disabled { opacity: .6; cursor: not-allowed; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+      .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #232332; border: 1px solid #343448; font-size: 12px; margin: 0 8px 8px 0; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      .ok { color: #68f09b }
+      .warn { color: #ffd166 }
+      .err { color: #ff6b6b }
+      a { color: #9bbcff; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="card" style="margin-bottom:16px">
+        <h1>Joyce Puppet</h1>
+        <p class="sub">A wholesome alter ego for Joyce — demoing Agent↔Agent with the x402 extension. Bring your tweet, add an optional image URL, and let the puppet do the rest.</p>
+        <div id="env" class="mono"></div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h3 style="margin-top:0">Compose</h3>
+          <label>Tweet text</label>
+          <textarea id="text" placeholder="Say something kind, curious, or joyful…"></textarea>
+          <label>Image URL (optional)</label>
+          <input id="imageUrl" type="text" placeholder="https://example.com/image.jpg" />
+          <button id="submit">Submit as Joyce Puppet</button>
+          <div id="status" class="mono" style="margin-top:12px"></div>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">Run info</h3>
+          <div id="info" class="mono"></div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:16px">
+        <div class="card">
+          <h3 style="margin-top:0">Created Task</h3>
+          <div id="created" class="mono"></div>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">Submission Result</h3>
+          <div id="submission" class="mono"></div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:16px">
+        <div class="card">
+          <h3 style="margin-top:0">Receipts</h3>
+          <div id="receipts" class="mono"></div>
+        </div>
+        <div class="card">
+          <h3 style="margin-top:0">Accept Terms</h3>
+          <div id="accept" class="mono"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <h3 style="margin-top:0">How it works</h3>
+        <div class="mono">
+          <div class="pill">A2A</div>
+          <div class="pill">x402</div>
+          <div class="pill">EIP-712</div>
+          <div class="pill">EIP-3009</div>
+          <p>1) The app sends your message to the Agent with the <code>X-A2A-Extensions</code> header advertising x402.<br/>2) The Agent responds with <code>x402.payment.required</code> and an EIP-712 domain for USDC.<br/>3) Your local key signs an EIP-3009 <code>transferWithAuthorization</code> payload.<br/>4) The app submits the signed payload with <code>x402.payment.submitted</code>.<br/>5) The Agent settles on-chain, then posts the tweet via the Twitter API.</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      async function fetchJSON(url, opts) {
+        const res = await fetch(url, opts);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      }
+
+      async function loadInfo() {
+        const info = await fetchJSON('/api/info');
+        const lines = [];
+        lines.push('Agent URL: ' + info.agentUrl);
+        lines.push('Card URL:  ' + info.cardUrl);
+        lines.push('RPC URL:   ' + (info.rpcUrl || '(not set)'));
+        lines.push('Chain ID:  ' + (info.chainId ?? '(unknown)'));
+        lines.push('Payer:     ' + (info.payerAddress || '(not set)'));
+        document.getElementById('env').textContent = lines.join('\n');
+        document.getElementById('info').textContent = JSON.stringify(info, null, 2);
+      }
+
+      async function submit() {
+        const btn = document.getElementById('submit');
+        btn.disabled = true;
+        document.getElementById('status').textContent = 'Submitting…';
+        try {
+          const payload = {
+            text: document.getElementById('text').value,
+            imageUrl: document.getElementById('imageUrl').value,
+          };
+          const result = await fetchJSON('/api/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          document.getElementById('status').textContent = result.statusText || '';
+          document.getElementById('created').textContent = JSON.stringify(result.createdTask || {}, null, 2);
+          document.getElementById('submission').textContent = JSON.stringify(result.submission || {}, null, 2);
+          document.getElementById('receipts').textContent = JSON.stringify(result.receipts || [], null, 2);
+          document.getElementById('accept').textContent = JSON.stringify(result.infoFromAccept || {}, null, 2);
+        } catch (e) {
+          document.getElementById('status').textContent = 'Error: ' + (e.message || e);
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      document.getElementById('submit').addEventListener('click', submit);
+      loadInfo().catch(console.error);
+    </script>
+  </body>
+  </html>
+
+
