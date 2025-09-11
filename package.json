@@ -1,0 +1,16 @@
+{
+  "name": "crossmint-a2a-402-samples",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@crossmint/wallets-sdk": "^0.12.5",
+    "dotenv": "^17.2.2"
+  }
+}
