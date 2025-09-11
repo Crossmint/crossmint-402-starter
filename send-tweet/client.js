@@ -11,7 +11,7 @@ const X402_RECEIPTS_KEY = "x402.payment.receipts";
 // (Removed mock payload helper; the example uses a real EIP-3009 signature below)
 
 async function main() {
-  const cardUrl = "http://localhost:10001/.well-known/agent-card.json";
+  const cardUrl = process.env.AGENT_URL ? `${process.env.AGENT_URL}/.well-known/agent-card.json` : "http://localhost:10001/.well-known/agent-card.json";
   // Always include activation header on all client requests
   const fetchWithExtension = (input, init = {}) => {
     const headers = { ...(init.headers || {}), "X-A2A-Extensions": X402_EXTENSION_URI };

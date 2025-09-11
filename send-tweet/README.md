@@ -40,6 +40,7 @@ Set environment variables (copy `.env.example` to `.env`):
 - `TWEET_TEXT`: tweet text to send (server will error if missing)
 
 **Client-side (Optional):**
+- `AGENT_URL`: tweet agent server URL (default: http://localhost:10001)
 - `IMAGE_URL`: image URL to attach to tweet
 
 **Server-side (Optional):**
