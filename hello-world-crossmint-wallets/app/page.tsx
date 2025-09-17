@@ -484,9 +484,8 @@ export default function Home() {
           </p>
           <h3 style={{ color: '#856404', marginBottom: '0.5rem' }}>Get Base Sepolia USDC:</h3>
           <ul style={{ color: '#856404', marginLeft: '1rem' }}>
-            <li>1. Get Base Sepolia ETH from <a href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer" style={{ color: '#007bff' }}>Circle Faucet</a></li>
-            <li>2. Bridge USDC from other testnets or use a USDC testnet faucet</li>
-            <li>3. Your address: <code>{balances.userAddress}</code></li>
+            <li>1. Get Base Sepolia USDC from <a href="https://faucet.circle.com/" target="_blank" rel="noopener noreferrer" style={{ color: '#007bff' }}>Circle Faucet</a></li>
+            <li>2. Your address: <code>{balances.userAddress}</code></li>
           </ul>
         </div>
       )}
