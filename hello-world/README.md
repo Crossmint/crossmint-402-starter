@@ -75,5 +75,5 @@ npm run dev       # Start React client (port 3000)
 
 - [A2A JavaScript SDK](https://github.com/a2aproject/a2a-js)
 - [Crossmint Wallets SDK](https://www.npmjs.com/package/@crossmint/wallets-sdk)
-- [x402 Extension Specification](#)
+- [Local integration spec (direct-transfer)](./spec.md)
 - [EIP-3009: Transfer With Authorization](https://eips.ethereum.org/EIPS/eip-3009)
