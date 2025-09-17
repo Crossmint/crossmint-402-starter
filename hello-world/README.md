@@ -7,14 +7,13 @@ A complete **Agent-to-Agent (A2A)** payment demo using the **x402 payments exten
 ### **Server (Merchant):**
 - Advertises the x402 extension in its AgentCard
 - Returns payment requirements on first message (`x402.payment.required`)
-- Verifies EIP-712 signatures (EOA + ERC-1271 smart wallet support)
-- Settles payments on-chain using `transferWithAuthorization`
+- Uses the `direct-transfer` scheme: verifies payment by checking ERC‑20 `Transfer` logs from payer to payee
 - Publishes payment receipts with transaction hashes
 
 ### **Client (React App):**
 - Web interface for A2A payment flow
 - Integrates **Crossmint Wallets SDK** for wallet management
-- Uses **delegated EOA signing** for consistent signature verification
+- Executes ERC‑20 `transfer` from the Crossmint wallet and submits tx hash via x402
 - Real-time balance checking and payment status
 - Automatic balance refresh after successful payments
 
@@ -48,7 +47,7 @@ npm run dev
 - **AgentCard**: http://localhost:10000/.well-known/agent-card.json
 
 ## **Note**:
-- the private key you will enter in the react app is to demonstrate that user's crossmint wallet will ideally be delegating signing authority to the client agent which will be interacting with the server agent.
+- Crossmint is the payer in this demo. No user private key is required; the transfer is executed by the Crossmint wallet service and verified on-chain by the server.
 
 ## **Getting Testnet Tokens**
 1. **Base Sepolia ETH**: [Coinbase Faucet](https://www.coinbase.com/faucets/base-ethereum-sepolia-faucet)
@@ -67,10 +66,10 @@ npm run dev       # Start React client (port 3000)
 - **Discovery and activation**: The client opts in to the payments extension and loads the merchant's AgentCard using the `X-A2A-Extensions` header. See `A2AClient.fromCardUrl` and `fetchWithExtension` in [`app/page.tsx`](./app/page.tsx).
 - **Request and requirements**: The client sends an initial message; the merchant replies with a Task whose message `metadata` includes `x402.payment.status: "payment-required"` and `x402.payment.required`. See `handlePayment()` in [`app/page.tsx`](./app/page.tsx).
 - **Wallet setup (payer)**: A Crossmint wallet is created/loaded for `email:{userEmail}` on the requested chain. See `createCrossmint`, `CrossmintWallets.from`, and `wallets.createWallet` in [`app/page.tsx`](./app/page.tsx).
-- **EIP‑712 authorization**: The app builds the EIP‑712 `domain`, `types` (TransferWithAuthorization), and `message` (from, to, value, validity, nonce). See the EIP‑712 setup in `handlePayment()` in [`app/page.tsx`](./app/page.tsx).
-- **Signing and verification (Crossmint signs)**: The Crossmint wallet signs via `evmWallet.signTypedData(...)`. Optionally verify with `recoverTypedDataAddress(...)`. See `handlePayment()` in [`app/page.tsx`](./app/page.tsx).
-- **Payment submission**: The signed authorization is sent back with `x402.payment.status: "payment-submitted"` and `x402.payment.payload` (including `taskId`). The merchant verifies/settles per the A2A x402 protocol.
-- **Receipts and balances**: The client reads `x402.payment.receipts` and refreshes balances via RPC + ERC‑20 calls. See `checkBalances()` with `JsonRpcProvider`, `Contract`, and `ERC20_ABI` in [`app/page.tsx`](./app/page.tsx).
+- **Direct transfer**: The client executes ERC‑20 `transfer(payTo, amount)` from the Crossmint wallet. See `evmWallet.sendTransaction` usage in `handlePayment()`.
+- **Payment submission**: The tx hash and details are sent back with `x402.payment.status: "payment-submitted"` and `x402.payment.payload`.
+- **Server verification**: The server checks the receipt and `Transfer` log for exact payer, payTo, and amount, then publishes `payment-completed` with a receipt. See `server.js`.
+- **Receipts and balances**: The client reads `x402.payment.receipts` and refreshes balances via RPC + ERC‑20 calls. See `checkBalances()` in [`app/page.tsx`](./app/page.tsx).
 
 ## References
 

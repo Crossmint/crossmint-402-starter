@@ -1,5 +1,5 @@
 import express from "express";
-import { JsonRpcProvider, Wallet, Contract, Signature, verifyTypedData, TypedDataEncoder } from "ethers";
+import { JsonRpcProvider, Wallet, Contract, Interface } from "ethers";
 import { DefaultRequestHandler, InMemoryTaskStore } from "@a2a-js/sdk/server";
 import { A2AExpressApp } from "@a2a-js/sdk/server/express";
 
@@ -23,15 +23,14 @@ const MAX_TIMEOUT_SECONDS = parseInt(process.env.MAX_TIMEOUT_SECONDS || "600", 1
 const RPC_URL = process.env.RPC_URL; // e.g. Base mainnet/sepolia RPC
 const MERCHANT_PRIVATE_KEY = process.env.MERCHANT_PRIVATE_KEY; // merchant signer key
 
-// Minimal USDC v2 EIP-3009 ABI
-const USDC_EIP3009_ABI = [
-  "function transferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce,uint8 v,bytes32 r,bytes32 s) external returns (bool)"
-];
 const ERC20_METADATA_ABI = [
   "function name() view returns (string)",
   "function version() view returns (string)",
   "function decimals() view returns (uint8)"
 ];
+const ERC20_TRANSFER_EVENT_IFACE = new Interface([
+  "event Transfer(address indexed from, address indexed to, uint256 value)"
+]);
 
 async function getDomain(provider, tokenAddress) {
   const net = await provider.getNetwork();
@@ -120,19 +119,16 @@ class MerchantExecutor {
         contextId,
       });
 
-      // Extract EIP-3009 fields from payload
+      // Extract direct-transfer fields from payload
       const payload = meta[X402_PAYLOAD_KEY];
       const selected = payload?.payload || {};
       const asset = selected.asset || ASSET_ADDRESS;
-      const from = selected.from;
+      const payer = selected.payer; // crossmint wallet address
       const to = selected.payTo || MERCHANT_ADDRESS;
       const value = selected.value;
-      const validAfter = selected.validAfter || 0;
-      const validBefore = selected.validBefore;
-      const nonce = selected.nonce;
-      const sigHex = selected.signature;
-      if (!from || !to || !value || !validBefore || !nonce || !sigHex) {
-        console.error("[server] missing required EIP-3009 fields in payload");
+      const txHash = selected.transaction;
+      if (!payer || !to || !value || !txHash) {
+        console.error("[server] missing required direct-transfer fields in payload");
         eventBus.publish({
           kind: "status-update",
           taskId,
@@ -152,112 +148,7 @@ class MerchantExecutor {
         eventBus.finished();
         return;
       }
-
-      // Verify EIP-712 signature (USDC v2 EIP-3009 TransferWithAuthorization)
-      const domain = await getDomain(this.provider, asset);
-      const types = {
-        TransferWithAuthorization: [
-          { name: "from", type: "address" },
-          { name: "to", type: "address" },
-          { name: "value", type: "uint256" },
-          { name: "validAfter", type: "uint256" },
-          { name: "validBefore", type: "uint256" },
-          { name: "nonce", type: "bytes32" },
-        ],
-      };
-      const message = { from, to, value, validAfter, validBefore, nonce };
-      console.log("[server] verify input", JSON.stringify({ domain, types, message, sigHex }, null, 2));
-
-      let recovered;
-      try {
-        recovered = verifyTypedData(domain, types, message, sigHex);
-      } catch (e) {
-        console.error("[server] verifyTypedData error", e);
-      }
-      if (!recovered || recovered.toLowerCase() !== String(from).toLowerCase()) {
-        // Fallback: if `from` is a contract wallet, verify via ERC-1271
-        try {
-          const code = await this.provider.getCode(from);
-          const isContract = code && code !== "0x";
-          console.log("[server] ecrecover mismatch; contract check", { recovered, from, isContract });
-          if (!isContract) {
-            console.error("[server] signature recovery mismatch", { recovered, from });
-            eventBus.publish({
-              kind: "status-update",
-              taskId,
-              contextId,
-              status: {
-                state: "failed",
-                message: {
-                  kind: "message",
-                  role: "agent",
-                  parts: [{ kind: "text", text: "Payment verification failed: invalid signature." }],
-                  metadata: { [X402_STATUS_KEY]: "payment-failed" },
-                },
-                timestamp: new Date().toISOString(),
-              },
-              final: true,
-            });
-            eventBus.finished();
-            return;
-          }
-
-          // ERC-1271 path
-          const ERC1271_ABI = [
-            "function isValidSignature(bytes32 hash, bytes signature) view returns (bytes4)"
-          ];
-          const digest = TypedDataEncoder.hash(domain, types, message);
-          console.log("[server] ERC-1271 digest", digest);
-          const erc1271 = new Contract(from, ERC1271_ABI, this.provider);
-          const magic = await erc1271.isValidSignature(digest, sigHex);
-          const MAGIC_VALUE = "0x1626ba7e";
-          console.log("[server] ERC-1271 result", { magic });
-          if (String(magic).toLowerCase() !== MAGIC_VALUE) {
-            console.error("[server] ERC-1271 verification failed", { magic });
-            eventBus.publish({
-              kind: "status-update",
-              taskId,
-              contextId,
-              status: {
-                state: "failed",
-                message: {
-                  kind: "message",
-                  role: "agent",
-                  parts: [{ kind: "text", text: "Payment verification failed: invalid contract signature." }],
-                  metadata: { [X402_STATUS_KEY]: "payment-failed" },
-                },
-                timestamp: new Date().toISOString(),
-              },
-              final: true,
-            });
-            eventBus.finished();
-            return;
-          }
-          // ERC-1271 verified; continue
-        } catch (e) {
-          console.error("[server] ERC-1271 verification error", e);
-          eventBus.publish({
-            kind: "status-update",
-            taskId,
-            contextId,
-            status: {
-              state: "failed",
-              message: {
-                kind: "message",
-                role: "agent",
-                parts: [{ kind: "text", text: "Payment verification failed during ERC-1271 check." }],
-                metadata: { [X402_STATUS_KEY]: "payment-failed" },
-              },
-              timestamp: new Date().toISOString(),
-            },
-            final: true,
-          });
-          eventBus.finished();
-          return;
-        }
-      }
-
-      // Publish payment-pending before on-chain settlement
+      // Publish payment-pending before verification
       eventBus.publish({
         kind: "status-update",
         taskId,
@@ -267,7 +158,7 @@ class MerchantExecutor {
           message: {
             kind: "message",
             role: "agent",
-            parts: [{ kind: "text", text: "Payment authorization verified. Settling on-chain..." }],
+            parts: [{ kind: "text", text: "Verifying on-chain transfer..." }],
             metadata: { [X402_STATUS_KEY]: "payment-pending" },
           },
         },
@@ -275,8 +166,8 @@ class MerchantExecutor {
       });
       console.log("[server] payment-pending published", { taskId });
 
-      if (!this.provider || !this.signer) {
-        console.error("[server] RPC_URL or MERCHANT_PRIVATE_KEY not set. Cannot settle on-chain.");
+      if (!this.provider) {
+        console.error("[server] RPC_URL not set. Cannot verify on-chain.");
         eventBus.publish({
           kind: "status-update",
           taskId,
@@ -286,7 +177,7 @@ class MerchantExecutor {
             message: {
               kind: "message",
               role: "agent",
-              parts: [{ kind: "text", text: "Settlement configuration missing (RPC_URL or MERCHANT_PRIVATE_KEY)." }],
+              parts: [{ kind: "text", text: "Verification configuration missing (RPC_URL)." }],
               metadata: { [X402_STATUS_KEY]: "payment-failed" },
             },
             timestamp: new Date().toISOString(),
@@ -297,31 +188,95 @@ class MerchantExecutor {
         return;
       }
 
-      // Submit on-chain settlement: transferWithAuthorization
-      const contract = new Contract(asset, USDC_EIP3009_ABI, this.signer);
-      const sig = Signature.from(sigHex);
-      const tx = await contract.transferWithAuthorization(
-        from,
-        to,
-        value,
-        validAfter,
-        validBefore,
-        nonce,
-        sig.v,
-        sig.r,
-        sig.s
-      );
-      console.log("[server] settlement tx sent", { hash: tx.hash });
-      const mined = await tx.wait();
-      console.log("[server] settlement tx mined", { hash: mined?.hash });
+      // Verify direct transfer by inspecting receipt logs (poll briefly until available)
+      let txReceipt = null;
+      for (let i = 0; i < 15; i++) {
+        txReceipt = await this.provider.getTransactionReceipt(txHash);
+        if (txReceipt != null) break;
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      if (!txReceipt || txReceipt.status !== 1) {
+        console.error("[server] receipt missing or failed", { txHash, status: txReceipt?.status });
+        eventBus.publish({
+          kind: "status-update",
+          taskId,
+          contextId,
+          status: {
+            state: "failed",
+            message: {
+              kind: "message",
+              role: "agent",
+              parts: [{ kind: "text", text: "Payment verification failed on-chain." }],
+              metadata: { [X402_STATUS_KEY]: "payment-failed" },
+            },
+            timestamp: new Date().toISOString(),
+          },
+          final: true,
+        });
+        eventBus.finished();
+        return;
+      }
+
+      // Confirm Transfer event exists on the token contract
+      const transferEvent = txReceipt.logs
+        .filter((l) => l.address.toLowerCase() === String(asset).toLowerCase())
+        .map((l) => { try { return ERC20_TRANSFER_EVENT_IFACE.parseLog(l); } catch { return null; } })
+        .find((e) => e && e.name === "Transfer");
+      if (!transferEvent) {
+        console.error("[server] token transfer not found in receipt", { txHash, token: asset });
+        eventBus.publish({
+          kind: "status-update",
+          taskId,
+          contextId,
+          status: {
+            state: "failed",
+            message: {
+              kind: "message",
+              role: "agent",
+              parts: [{ kind: "text", text: "Payment verification failed: no Transfer event." }],
+              metadata: { [X402_STATUS_KEY]: "payment-failed" },
+            },
+            timestamp: new Date().toISOString(),
+          },
+          final: true,
+        });
+        eventBus.finished();
+        return;
+      }
+      const { from, to: toAddr, value: amount } = transferEvent.args;
+      if (
+        String(from).toLowerCase() !== String(payer).toLowerCase() ||
+        String(toAddr).toLowerCase() !== String(to).toLowerCase() ||
+        String(amount.toString()) !== String(value)
+      ) {
+        console.error("[server] transfer mismatch", { from, toAddr, amount: amount.toString(), payer, to, value });
+        eventBus.publish({
+          kind: "status-update",
+          taskId,
+          contextId,
+          status: {
+            state: "failed",
+            message: {
+              kind: "message",
+              role: "agent",
+              parts: [{ kind: "text", text: "Payment verification failed: mismatch." }],
+              metadata: { [X402_STATUS_KEY]: "payment-failed" },
+            },
+            timestamp: new Date().toISOString(),
+          },
+          final: true,
+        });
+        eventBus.finished();
+        return;
+      }
 
       // Append receipts history
       const prevReceipts = requestContext?.task?.status?.message?.metadata?.[X402_RECEIPTS_KEY] || [];
       const receipt = {
         success: true,
-        transaction: mined?.hash || tx.hash,
+        transaction: txHash,
         network: X402_NETWORK,
-        payer: from,
+        payer,
       };
 
       // Working update with completed payment and receipt
@@ -373,7 +328,6 @@ class MerchantExecutor {
     console.log("[server] publishing payment-required", { taskId, contextId });
 
     // Default path: require payment first — publish a Task and finish
-    // Prepare EIP-712 domain for the token so the client can sign with the exact same fields
     let domainForClient = undefined;
     let tokenDecimals = 6;
     try {
@@ -401,7 +355,7 @@ class MerchantExecutor {
               x402Version: 1,
               accepts: [
                 {
-                  scheme: "exact",
+                  scheme: "direct-transfer",
                   network: X402_NETWORK,
                   resource: "https://api.example.com/generate",
                   description: "Generate a response",
@@ -411,7 +365,7 @@ class MerchantExecutor {
                   payTo: MERCHANT_ADDRESS,
                   maxAmountRequired: PRICE_ATOMIC || decimalToAtomic(PRICE_USDC, tokenDecimals),
                   maxTimeoutSeconds: MAX_TIMEOUT_SECONDS,
-                  extra: { domain: domainForClient },
+                  extra: null,
                 },
               ],
             },

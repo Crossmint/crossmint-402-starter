@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { A2AClient } from "@a2a-js/sdk/client";
 import { v4 as uuidv4 } from "uuid";
-import { hexlify, randomBytes, JsonRpcProvider, Contract } from "ethers";
+import { JsonRpcProvider, Contract } from "ethers";
 import { CrossmintWallets, createCrossmint, EVMWallet } from "@crossmint/wallets-sdk";
 
 const X402_EXTENSION_URI = "https://github.com/google-a2a/a2a-x402/v0.1";
@@ -252,78 +252,34 @@ export default function Home() {
 
       // No delegated signer needed; Crossmint wallet will sign and pay
 
-      // Prepare payment data
+      // Execute ERC-20 transfer directly from Crossmint wallet (direct-transfer scheme)
       const asset = String(selected.asset).trim().toLowerCase();
       const payTo = String(selected.payTo).trim().toLowerCase();
-      const nonce = hexlify(randomBytes(32));
-      const validAfter = 0;
-      const validBefore = Math.floor(Date.now() / 1000) + (selected.maxTimeoutSeconds || 600);
-
-      // Get EIP-712 domain
-      const serverDomain = selected.extra && selected.extra.domain;
-      let domain;
-      if (serverDomain && serverDomain.verifyingContract?.toLowerCase() === asset) {
-        domain = { ...serverDomain, chainId: Number(serverDomain.chainId) };
-        addLog('Using server-provided domain');
-      } else {
-        const guessed = resolveChainId(evmChain) || 0;
-        domain = {
-          name: "USD Coin",
-          version: "2",
-          chainId: guessed,
-          verifyingContract: asset,
-        };
-        addLog('Using fallback domain');
-      }
-
-      const types = {
-        TransferWithAuthorization: [
-          { name: "from", type: "address" },
-          { name: "to", type: "address" },
-          { name: "value", type: "uint256" },
-          { name: "validAfter", type: "uint256" },
-          { name: "validBefore", type: "uint256" },
-          { name: "nonce", type: "bytes32" },
+      addLog('Sending ERC-20 transfer from Crossmint wallet...');
+      const transferTx = await evmWallet.sendTransaction({
+        abi: [
+          { type: "function", name: "transfer", stateMutability: "nonpayable",
+            inputs: [{ name: "to", type: "address" }, { name: "value", type: "uint256" }],
+            outputs: [{ type: "bool" }] }
         ],
-      };
-
-      // Force the signer to be the Crossmint wallet (payer)
-      const signerAddress = crossmintWallet.address;
-      const message = {
-        from: signerAddress,
-        to: payTo,
-        value: selected.maxAmountRequired,
-        validAfter,
-        validBefore,
-        nonce,
-      };
-
-      // Ask Crossmint wallet to sign the EIP-712 data (API key signer will auto-approve)
-      addLog('Requesting signature from Crossmint wallet...');
-      const signatureRes = await evmWallet.signTypedData({
-        domain,
-        types,
-        primaryType: "TransferWithAuthorization",
-        message,
-        chain: evmChain as any,
+        to: asset,
+        functionName: "transfer",
+        args: [payTo, String(selected.maxAmountRequired)],
       } as any);
-      const signature = (signatureRes as any)?.signature as string;
-      if (!signature) throw new Error('Signature not available');
-      addLog(`Wallet signature created: ${signature.length} chars`);
+      const txHash = transferTx.hash as string;
+      if (!txHash) throw new Error('No transaction hash returned');
+      addLog(`Transfer submitted: ${txHash}`);
 
       const paymentPayload = {
         x402Version: 1,
         scheme: selected.scheme,
         network: selected.network,
         payload: {
-          from: message.from,
-          payTo: message.to,
+          transaction: txHash,
+          payer: crossmintWallet.address,
           asset,
-          value: message.value,
-          validAfter: message.validAfter,
-          validBefore: message.validBefore,
-          nonce: message.nonce,
-          signature,
+          payTo,
+          value: String(selected.maxAmountRequired),
         },
       };
 
