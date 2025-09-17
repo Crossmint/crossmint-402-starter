@@ -34,20 +34,6 @@ sequenceDiagram
     S-->>C: payment-completed + receipt
     C->>C: Refresh balances and status
 ```
-
-```mermaid
-flowchart LR
-    AC[AgentCard<br/>x402 advertised] --> REQ[Client asks to pay]
-    REQ --> PR[Server returns payment-required<br/>+ requirements]
-    PR --> WAL[Crossmint Wallet<br/>create/load]
-    WAL --> TX[ERC-20 transfer]
-    TX --> CHAIN[EVM chain: Base Sepolia]
-    CHAIN --> SUB[Submit tx hash to server]
-    SUB --> VERIFY[Server verifies<br/>on-chain logs]
-    VERIFY --> DONE[Payment completed<br/>+ receipt]
-    DONE --> UI[UI refreshes<br/>balances/status]
-```
-
 ## Quick start
 
 ### Prerequisites
