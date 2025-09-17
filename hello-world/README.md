@@ -50,7 +50,7 @@ npm run dev
 - Crossmint is the payer in this demo. No user private key is required; the transfer is executed by the Crossmint wallet service and verified on-chain by the server.
 
 ## **Getting Testnet Tokens**
-1. **Base Sepolia ETH**: [Coinbase Faucet](https://www.coinbase.com/faucets/base-ethereum-sepolia-faucet)
+1. **Base Sepolia ETH**: [Circle Faucet](https://faucet.circle.com/)
 2. **Base Sepolia USDC**: Bridge from other testnets or use USDC faucets
 3. Send tokens to your `CLIENT_PRIVATE_KEY` address
 
