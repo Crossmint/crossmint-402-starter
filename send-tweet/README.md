@@ -1,6 +1,6 @@
 ## A2A x402 Tweet Agent
 
-A2A agent that sends tweets on X/Twitter for payment using the x402 payments extension. Client pays in USDC, server posts their tweet with optional image attachment.
+A2A agent that sends tweets on X/Twitter for payment using the x402 payments extension. Client pays in USDC, server posts their tweet with optional image attachment. Both Client and Server wallets are EOA.
 
 ### What it does
 
@@ -33,7 +33,7 @@ Set environment variables (copy `.env.example` to `.env`):
 **Required:**
 - `MERCHANT_PRIVATE_KEY`: merchant wallet private key
 - `RPC_URL`: Base network RPC endpoint
-- `TWITTER_CONSUMER_KEY`, `TWITTER_CONSUMER_SECRET`: Twitter app credentials  
+- `TWITTER_CONSUMER_KEY`, `TWITTER_CONSUMER_SECRET`: Twitter app credentials
 - `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_TOKEN_SECRET`: Twitter user tokens
 
 **Client-side (Required):**
