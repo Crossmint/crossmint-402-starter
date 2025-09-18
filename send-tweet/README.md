@@ -16,6 +16,34 @@ A2A agent that sends tweets on X/Twitter for payment using the x402 payments ext
   - Submits transaction hash via x402 `X-PAYMENT` payload
   - Displays balances (user and merchant) and logs
 
+### Sequence Flow
+
+```mermaid
+sequenceDiagram
+    participant U as You
+    participant C as React Client (sendvia)
+    participant S as Tweet Agent Server
+    participant X as Crossmint Wallet
+    participant E as EVM (Base or Base Sepolia)
+    participant T as Twitter API v2
+
+    U->>C: Open app
+    C->>S: Fetch AgentCard (x402 extension)
+    C->>S: Send initial message
+    S-->>C: payment-required + requirements
+    C->>X: Create/Load wallet for email
+    C->>X: Send ERC-20 transfer(payTo, amount)
+    X->>E: Broadcast transaction
+    E-->>X: Tx hash + receipt
+    C->>S: payment-submitted (tx hash)
+    S->>E: Verify Transfer log (payer, payTo, amount)
+    E-->>S: Validated receipt
+    S->>T: Post tweet (optional image)
+    T-->>S: Tweet ID
+    S-->>C: payment-completed + receipt + tweetId
+    C->>C: Refresh balances and status
+```
+
 ### Prerequisites
 
 - Node.js 18+
