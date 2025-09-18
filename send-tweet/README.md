@@ -1,24 +1,26 @@
-## A2A x402 Tweet Agent
+## A2A x402 Tweet Agent (direct-transfer + Crossmint)
 
-A2A agent that sends tweets on X/Twitter for payment using the x402 payments extension. Client pays in USDC, server posts their tweet with optional image attachment. Both Client and Server wallets are EOA.
+A2A agent that sends tweets on X/Twitter for payment using the x402 payments extension and the `direct-transfer` scheme. The client uses Crossmint Wallets to pay USDC via an on-chain ERC‑20 transfer; the server verifies the transfer on-chain and posts the tweet via Twitter API v2 (optional image supported).
 
 ### What it does
 
 - Server (tweet agent):
-  - Advertises the x402 extension for tweet posting service
+  - Advertises the x402 extension with `direct-transfer` scheme
   - Requires tweet text (will error if not provided)
   - Accepts optional image URL for tweet attachment
-  - Verifies EIP-712 signature and settles payment on-chain
+  - Verifies ERC‑20 transfer by transaction receipt and Transfer event
   - Posts tweet (with optional image) via Twitter API v2 after successful payment
-- Client:
-  - Sends tweet text (required) and optional image URL to agent
-  - Receives payment terms and signs EIP-3009 payment authorization
-  - Receives tweet confirmation with tweet ID
+- Client (`sendvia` React app):
+  - Uses Crossmint Wallets for the user (email) on the selected EVM chain
+  - Fetches payment requirements and executes ERC‑20 `transfer(payTo, amount)`
+  - Submits transaction hash via x402 `X-PAYMENT` payload
+  - Displays balances (user and merchant) and logs
 
 ### Prerequisites
 
 - Node.js 18+
 - Twitter Developer Account with API v2 access
+- Crossmint API key (for Wallets) and a user email to associate the wallet
 
 ### Install
 
@@ -30,23 +32,20 @@ npm install
 
 Set environment variables (copy `.env.example` to `.env`):
 
-**Required:**
-- `MERCHANT_PRIVATE_KEY`: merchant wallet private key
-- `RPC_URL`: Base network RPC endpoint
-- `TWITTER_CONSUMER_KEY`, `TWITTER_CONSUMER_SECRET`: Twitter app credentials
-- `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_TOKEN_SECRET`: Twitter user tokens
+**Server (required):**
+- `RPC_URL`: EVM RPC endpoint (e.g. Base Sepolia)
+- `MERCHANT_ADDRESS`: merchant wallet address (EOA to receive payment)
+- `ASSET_ADDRESS`: USDC token address on the chosen network (default points to Base Sepolia)
+- `X402_NETWORK`: `base` or `base-sepolia` (default: base-sepolia)
+- `PRICE_USDC`: tweet price in USDC (decimal string, default: 1)
+- `TWITTER_CONSUMER_KEY`, `TWITTER_CONSUMER_SECRET`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_TOKEN_SECRET`
 
-**Client-side (Required):**
-- `TWEET_TEXT`: tweet text to send (server will error if missing)
+Note: No `MERCHANT_PRIVATE_KEY` is required; the client performs the transfer and the server verifies it on-chain.
 
-**Client-side (Optional):**
-- `AGENT_URL`: tweet agent server URL (default: http://localhost:10001)
-- `IMAGE_URL`: image URL to attach to tweet
-
-**Server-side (Optional):**
-- `PORT`: server port (default: 10001)
-- `X402_NETWORK`: "base" or "base-sepolia" (default: base-sepolia)
-- `PRICE_USDC`: tweet price in USDC (default: 0 for free tweets)
+**Client (`sendvia`)**
+- `CROSSMINT_API_KEY`: your Crossmint API key
+- You will input the user email in the UI at runtime
+- Server URL defaults to `http://localhost:10001`, configurable in the UI
 
 ### Run
 
@@ -56,22 +55,23 @@ npm run server
 # http://localhost:10001
 ```
 
-2) Run the client with your tweet (customize via environment variables):
+2) Start the React client (`sendvia`):
 ```bash
-# Send tweet with text only
-TWEET_TEXT="My awesome tweet! 🚀" npm run client
-
-# Send tweet with text and image
-TWEET_TEXT="Check out this photo!" IMAGE_URL="https://example.com/my-image.jpg" npm run client
-
-# Will error if no TWEET_TEXT provided
-npm run client
+npm run sendvia
+# http://localhost:3000
 ```
 
-Expected output:
-- Payment terms for tweet posting
-- Payment settlement on-chain
-- Tweet posted successfully with tweet ID (with or without image)
+3) In the client UI:
+- Enter Crossmint API key and user email
+- Enter the Tweet text and (optionally) an image URL
+- Optionally change the server URL
+- Click "Start Payment Flow" to pay and trigger tweeting
+
+Expected:
+- Payment requirements from server (direct-transfer)
+- ERC‑20 transfer from Crossmint wallet to merchant
+- Server verifies transaction and posts the tweet
+- UI shows balances and the resulting tweet ID in logs
 
 ### Twitter API Setup
 
@@ -82,7 +82,12 @@ Expected output:
 5. Ensure your Twitter account has phone verification
 6. Add credentials to your `.env` file
 
-### Troubleshooting Twitter API Errors
+### Troubleshooting
+
+**Direct-transfer verification failed:**
+- Ensure the client paid the exact `maxAmountRequired` to `payTo`
+- Confirm the token address (`ASSET_ADDRESS`) matches the token transferred
+- Check `RPC_URL` correctness and network
 
 **403 Permission Denied:**
 - Check app has "Read and Write" permissions (not just "Read")
@@ -100,6 +105,8 @@ Expected output:
 
 ### Files
 
-- `server.js`: tweet agent server with x402 payment and Twitter API integration
-- `client.js`: client that pays and requests tweet posting
+- `server.js`: tweet agent server with x402 direct-transfer verification and Twitter API integration
+- `sendvia/`: React client using Crossmint Wallets
 - `.env.example`: configuration template
+
+Note: If `.env.example` is not present, create a `.env` file with the variables listed above.

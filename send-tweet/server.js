@@ -1,5 +1,5 @@
 import express from "express";
-import { JsonRpcProvider, Wallet, Contract, Signature, verifyTypedData } from "ethers";
+import { JsonRpcProvider, Contract, Interface } from "ethers";
 import { DefaultRequestHandler, InMemoryTaskStore } from "@a2a-js/sdk/server";
 import { A2AExpressApp } from "@a2a-js/sdk/server/express";
 import { TwitterApi } from "twitter-api-v2";
@@ -13,17 +13,15 @@ const X402_RECEIPTS_KEY = "x402.payment.receipts";
 const X402_ERROR_KEY = "x402.payment.error";
 
 // Merchant/token configuration (env configurable)
-const MERCHANT_WALLET = process.env.MERCHANT_PRIVATE_KEY ? new Wallet(process.env.MERCHANT_PRIVATE_KEY) : undefined;
-const MERCHANT_ADDRESS = MERCHANT_WALLET ? MERCHANT_WALLET.address : undefined; // the payee/recipient
+const MERCHANT_ADDRESS = process.env.MERCHANT_ADDRESS; // the payee/recipient
 const ASSET_ADDRESS = process.env.ASSET_ADDRESS || "0x036CbD53842c5426634e7929541eC2318f3dCF7e"; // usdc on base sepolia
 const X402_NETWORK = process.env.X402_NETWORK || "base-sepolia"; // e.g., "base" or "base-sepolia"
 const PRICE_USDC = process.env.PRICE_USDC || "1"; // decimal string, e.g., "1" or "1.50"
 const PRICE_ATOMIC = process.env.PRICE_ATOMIC; // optional override in atomic units string
 const MAX_TIMEOUT_SECONDS = parseInt(process.env.MAX_TIMEOUT_SECONDS || "600", 10);
 
-// On-chain settlement configuration (set these for a fully functional demo)
+// On-chain verification configuration
 const RPC_URL = process.env.RPC_URL; // e.g. Base mainnet/sepolia RPC
-const MERCHANT_PRIVATE_KEY = process.env.MERCHANT_PRIVATE_KEY; // merchant signer key
 
 // Twitter API configuration
 const TWITTER_CONSUMER_KEY = process.env.TWITTER_CONSUMER_KEY;
@@ -34,15 +32,14 @@ const TWITTER_ACCESS_TOKEN_SECRET = process.env.TWITTER_ACCESS_TOKEN_SECRET;
 // Default image URL (optional)
 const DEFAULT_IMAGE_URL = "https://photographylife.com/wp-content/uploads/2023/05/Nikon-Z8-Official-Samples-00016.jpg";
 
-// Minimal USDC v2 EIP-3009 ABI
-const USDC_EIP3009_ABI = [
-  "function transferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce,uint8 v,bytes32 r,bytes32 s) external returns (bool)"
-];
 const ERC20_METADATA_ABI = [
   "function name() view returns (string)",
   "function version() view returns (string)",
   "function decimals() view returns (uint8)"
 ];
+const ERC20_TRANSFER_IFACE = new Interface([
+  "event Transfer(address indexed from, address indexed to, uint256 value)"
+]);
 
 async function getDomain(provider, tokenAddress) {
   const net = await provider.getNetwork();
@@ -137,14 +134,14 @@ async function downloadAndUploadImage(twitterClient, imageUrl) {
     if (!response.ok) {
       throw new Error(`Failed to download image: ${response.statusText}`);
     }
-    
+
     const imageBuffer = Buffer.from(await response.arrayBuffer());
     console.log("[server] image downloaded, size:", imageBuffer.length, "bytes");
-    
+
     console.log("[server] uploading image to Twitter");
     const mediaId = await twitterClient.v1.uploadMedia(imageBuffer, { mimeType: 'image/jpeg' });
     console.log("[server] image uploaded to Twitter, media ID:", mediaId);
-    
+
     return mediaId;
   } catch (error) {
     console.error("[server] failed to download/upload image:", error);
@@ -178,19 +175,16 @@ class MerchantExecutor {
         contextId,
       });
 
-      // Extract EIP-3009 fields from payload
+      // Extract direct-transfer fields from payload
       const payload = meta[X402_PAYLOAD_KEY];
-      const selected = payload?.payload || {};
-      const asset = selected.asset || ASSET_ADDRESS;
-      const from = selected.from;
-      const to = selected.payTo || MERCHANT_ADDRESS;
-      const value = selected.value;
-      const validAfter = selected.validAfter || 0;
-      const validBefore = selected.validBefore;
-      const nonce = selected.nonce;
-      const sigHex = selected.signature;
-      if (!from || !to || !value || !validBefore || !nonce || !sigHex) {
-        console.error("[server] missing required EIP-3009 fields in payload");
+      const submitted = payload?.payload || {};
+      const asset = (submitted.asset || ASSET_ADDRESS || "").toLowerCase();
+      const payer = (submitted.payer || "").toLowerCase();
+      const to = (submitted.payTo || MERCHANT_ADDRESS || "").toLowerCase();
+      const value = String(submitted.value || "");
+      const txHash = submitted.transaction;
+      if (!txHash || !payer || !to || !value || !asset) {
+        console.error("[server] missing required direct-transfer fields in payload");
         eventBus.publish({
           kind: "status-update",
           taskId,
@@ -201,7 +195,7 @@ class MerchantExecutor {
               kind: "message",
               role: "agent",
               parts: [{ kind: "text", text: "Payment verification failed: invalid payload." }],
-              metadata: { [X402_STATUS_KEY]: "payment-failed", [X402_ERROR_KEY]: "INVALID_AMOUNT" },
+              metadata: { [X402_STATUS_KEY]: "payment-failed", [X402_ERROR_KEY]: "INVALID_PAYLOAD" },
             },
             timestamp: new Date().toISOString(),
           },
@@ -211,49 +205,7 @@ class MerchantExecutor {
         return;
       }
 
-      // Verify EIP-712 signature (USDC v2 EIP-3009 TransferWithAuthorization)
-      const domain = await getDomain(this.provider, asset);
-      const types = {
-        TransferWithAuthorization: [
-          { name: "from", type: "address" },
-          { name: "to", type: "address" },
-          { name: "value", type: "uint256" },
-          { name: "validAfter", type: "uint256" },
-          { name: "validBefore", type: "uint256" },
-          { name: "nonce", type: "bytes32" },
-        ],
-      };
-      const message = { from, to, value, validAfter, validBefore, nonce };
-
-      let recovered;
-      try {
-        recovered = verifyTypedData(domain, types, message, sigHex);
-      } catch (e) {
-        console.error("[server] verifyTypedData error", e);
-      }
-      if (!recovered || recovered.toLowerCase() !== String(from).toLowerCase()) {
-        console.error("[server] signature recovery mismatch", { recovered, from });
-        eventBus.publish({
-          kind: "status-update",
-          taskId,
-          contextId,
-          status: {
-            state: "failed",
-            message: {
-              kind: "message",
-              role: "agent",
-              parts: [{ kind: "text", text: "Payment verification failed: invalid signature." }],
-              metadata: { [X402_STATUS_KEY]: "payment-failed", [X402_ERROR_KEY]: "INVALID_SIGNATURE" },
-            },
-            timestamp: new Date().toISOString(),
-          },
-          final: true,
-        });
-        eventBus.finished();
-        return;
-      }
-
-      // Publish payment-pending before on-chain settlement
+      // Publish payment-pending while verifying on-chain
       eventBus.publish({
         kind: "status-update",
         taskId,
@@ -263,7 +215,7 @@ class MerchantExecutor {
           message: {
             kind: "message",
             role: "agent",
-            parts: [{ kind: "text", text: "Payment authorization verified. Settling on-chain..." }],
+            parts: [{ kind: "text", text: "Verifying on-chain payment..." }],
             metadata: { [X402_STATUS_KEY]: "payment-pending" },
           },
         },
@@ -271,8 +223,8 @@ class MerchantExecutor {
       });
       console.log("[server] payment-pending published", { taskId });
 
-      if (!this.provider || !this.signer) {
-        console.error("[server] RPC_URL or MERCHANT_PRIVATE_KEY not set. Cannot settle on-chain.");
+      if (!this.provider) {
+        console.error("[server] RPC_URL not set. Cannot verify on-chain.");
         eventBus.publish({
           kind: "status-update",
           taskId,
@@ -282,8 +234,8 @@ class MerchantExecutor {
             message: {
               kind: "message",
               role: "agent",
-              parts: [{ kind: "text", text: "Settlement configuration missing (RPC_URL or MERCHANT_PRIVATE_KEY)." }],
-              metadata: { [X402_STATUS_KEY]: "payment-failed", [X402_ERROR_KEY]: "SETTLEMENT_FAILED" },
+              parts: [{ kind: "text", text: "Verification configuration missing (RPC_URL)." }],
+              metadata: { [X402_STATUS_KEY]: "payment-failed", [X402_ERROR_KEY]: "VERIFICATION_FAILED" },
             },
             timestamp: new Date().toISOString(),
           },
@@ -293,27 +245,15 @@ class MerchantExecutor {
         return;
       }
 
-      // Submit on-chain settlement: transferWithAuthorization
-      const contract = new Contract(asset, USDC_EIP3009_ABI, this.signer);
-      const sig = Signature.from(sigHex);
+      // Verify transaction receipt and Transfer event
       let mined;
       try {
-        const tx = await contract.transferWithAuthorization(
-          from,
-          to,
-          value,
-          validAfter,
-          validBefore,
-          nonce,
-          sig.v,
-          sig.r,
-          sig.s
-        );
-        console.log("[server] settlement tx sent", { hash: tx.hash });
-        mined = await tx.wait();
-        console.log("[server] settlement tx mined", { hash: mined?.hash });
+        mined = await this.provider.getTransactionReceipt(txHash);
       } catch (e) {
-        console.error("[server] settlement failed", e?.message || e);
+        console.error("[server] failed to fetch receipt", e?.message || e);
+      }
+      if (!mined || mined.status !== 1) {
+        console.error("[server] receipt missing or failed", { txHash, status: mined?.status });
         eventBus.publish({
           kind: "status-update",
           taskId,
@@ -323,8 +263,50 @@ class MerchantExecutor {
             message: {
               kind: "message",
               role: "agent",
-              parts: [{ kind: "text", text: "Payment settlement failed." }],
-              metadata: { [X402_STATUS_KEY]: "payment-failed", [X402_ERROR_KEY]: "SETTLEMENT_FAILED" },
+              parts: [{ kind: "text", text: "Payment verification failed: transaction not successful." }],
+              metadata: { [X402_STATUS_KEY]: "payment-failed", [X402_ERROR_KEY]: "TX_FAILED" },
+            },
+            timestamp: new Date().toISOString(),
+          },
+          final: true,
+        });
+        eventBus.finished();
+        return;
+      }
+
+      // Find matching Transfer event from the token contract
+      const wantedToken = asset.toLowerCase();
+      const logs = mined.logs || [];
+      let matched = false;
+      for (const log of logs) {
+        if (!log || String(log.address || '').toLowerCase() !== wantedToken) continue;
+        let parsed;
+        try {
+          parsed = ERC20_TRANSFER_IFACE.parseLog({ topics: log.topics, data: log.data });
+        } catch (_e) {}
+        if (parsed && parsed.name === "Transfer") {
+          const fromEv = String(parsed.args[0]).toLowerCase();
+          const toEv = String(parsed.args[1]).toLowerCase();
+          const valueEv = String(parsed.args[2]);
+          if (fromEv === payer && toEv === to && valueEv === String(value)) {
+            matched = true;
+            break;
+          }
+        }
+      }
+      if (!matched) {
+        console.error("[server] Transfer log not found or mismatch", { txHash });
+        eventBus.publish({
+          kind: "status-update",
+          taskId,
+          contextId,
+          status: {
+            state: "failed",
+            message: {
+              kind: "message",
+              role: "agent",
+              parts: [{ kind: "text", text: "Payment verification failed: transfer mismatch." }],
+              metadata: { [X402_STATUS_KEY]: "payment-failed", [X402_ERROR_KEY]: "TRANSFER_MISMATCH" },
             },
             timestamp: new Date().toISOString(),
           },
@@ -338,9 +320,9 @@ class MerchantExecutor {
       const prevReceipts = requestContext?.task?.status?.message?.metadata?.[X402_RECEIPTS_KEY] || [];
       const receipt = {
         success: true,
-        transaction: mined?.hash || tx.hash,
+        transaction: mined?.transactionHash || txHash,
         network: X402_NETWORK,
-        payer: from,
+        payer,
       };
 
       // Working update with completed payment and receipt
@@ -397,7 +379,7 @@ class MerchantExecutor {
       if (this.twitterClient) {
         try {
           let tweetOptions = {};
-          
+
           // Upload image if provided
           if (imageUrl) {
             console.log("[server] sending tweet with image:", tweetText);
@@ -406,13 +388,13 @@ class MerchantExecutor {
           } else {
             console.log("[server] sending text-only tweet:", tweetText);
           }
-          
+
           // Send tweet (with or without image)
           tweetResult = await this.twitterClient.v2.tweet(tweetText, tweetOptions);
           console.log("[server] tweet sent successfully:", tweetResult.data);
         } catch (error) {
           console.error("[server] failed to send tweet:", error);
-          
+
           // Provide more specific error messages for common issues
           if (error.code === 403) {
             tweetError = "Twitter API permission denied (403). Check your app has 'Read and Write' permissions and elevated access.";
@@ -433,7 +415,7 @@ class MerchantExecutor {
       let artifacts = [];
 
       if (tweetResult) {
-        completionMessage = imageUrl 
+        completionMessage = imageUrl
           ? `Tweet with image sent successfully! Tweet ID: ${tweetResult.data.id}`
           : `Tweet sent successfully! Tweet ID: ${tweetResult.data.id}`;
         artifacts = [{
@@ -443,7 +425,7 @@ class MerchantExecutor {
           content: JSON.stringify(tweetResult.data, null, 2),
         }];
       } else {
-        completionMessage = imageUrl 
+        completionMessage = imageUrl
           ? `Payment successful but failed to send tweet with image: ${tweetError}`
           : `Payment successful but failed to send tweet: ${tweetError}`;
       }
@@ -533,6 +515,18 @@ class MerchantExecutor {
       console.warn("[server] failed to derive token domain; client will use defaults", e?.message || e);
     }
 
+    // Compute required amount in atomic units
+    const requiredAtomic = PRICE_ATOMIC || decimalToAtomic(PRICE_USDC, tokenDecimals);
+
+    // Persist per-task expected payment details for later verification
+    this.taskContent.set(taskId, {
+      ...(this.taskContent.get(taskId) || {}),
+      requiredAtomic,
+      asset: ASSET_ADDRESS.toLowerCase(),
+      payTo: MERCHANT_ADDRESS.toLowerCase(),
+      network: X402_NETWORK,
+    });
+
     eventBus.publish({
       kind: "task",
       id: taskId,
@@ -549,7 +543,7 @@ class MerchantExecutor {
               x402Version: 1,
               accepts: [
                 {
-                  scheme: "exact",
+                  scheme: "direct-transfer",
                   network: X402_NETWORK,
                   resource: "https://api.x.com/2/tweets",
                   description: "Send a tweet on X/Twitter",
@@ -557,9 +551,9 @@ class MerchantExecutor {
                   outputSchema: {},
                   asset: ASSET_ADDRESS,
                   payTo: MERCHANT_ADDRESS,
-                  maxAmountRequired: PRICE_ATOMIC || decimalToAtomic(PRICE_USDC, tokenDecimals),
+                  maxAmountRequired: requiredAtomic,
                   maxTimeoutSeconds: MAX_TIMEOUT_SECONDS,
-                  extra: { domain: domainForClient },
+                  extra: {},
                 },
               ],
             },
@@ -587,16 +581,12 @@ class MerchantExecutor {
 
 async function main() {
   // Validate critical configuration before starting the server
-  if (!MERCHANT_PRIVATE_KEY) {
-    console.error("[server] MERCHANT_PRIVATE_KEY is required. Set it in your environment.");
-    process.exit(1);
-  }
   if (!RPC_URL) {
-    console.error("[server] RPC_URL is required for settlement. Set it in your environment.");
+    console.error("[server] RPC_URL is required for verification. Set it in your environment.");
     process.exit(1);
   }
   if (!MERCHANT_ADDRESS) {
-    console.error("[server] MERCHANT_ADDRESS could not be derived from MERCHANT_PRIVATE_KEY.");
+    console.error("[server] MERCHANT_ADDRESS is required. Set MERCHANT_ADDRESS in your environment.");
     process.exit(1);
   }
 
@@ -607,15 +597,23 @@ async function main() {
 
   const app = express();
   app.use(express.json());
-  // Echo extension activation header on all responses
+  // CORS + extension activation headers and OPTIONS preflight handling
   app.use((req, res, next) => {
+    const origin = process.env.CORS_ORIGIN || "*";
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-A2A-Extensions");
     res.setHeader("X-A2A-Extensions", X402_EXTENSION_URI);
+    if (req.method === "OPTIONS") {
+      res.status(204).end();
+      return;
+    }
     next();
   });
 
   const taskStore = new InMemoryTaskStore();
   const sharedProvider = RPC_URL ? new JsonRpcProvider(RPC_URL) : undefined;
-  const sharedSigner = MERCHANT_PRIVATE_KEY && sharedProvider ? new Wallet(MERCHANT_PRIVATE_KEY, sharedProvider) : undefined;
+  const sharedSigner = undefined; // not needed for direct-transfer verification
   const executor = new MerchantExecutor(sharedProvider, sharedSigner);
   const requestHandler = new DefaultRequestHandler(agentCard, taskStore, executor);
 
