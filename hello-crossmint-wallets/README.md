@@ -3,6 +3,7 @@
 Run a complete Agent-to-Agent (A2A) payment flow using the x402 payments extension and the Crossmint Wallets SDK in a single React web app plus a tiny merchant server.
 
 [![Crossmint_Wallets_with_A2A_402_protocol](./a2a-crossmint.gif)](https://www.youtube.com/watch?v=Esoqx7SWqaI)
+
 Watch the video walkthrough of this codebase [here](https://www.youtube.com/watch?v=Esoqx7SWqaI)
 
 ## What it does
