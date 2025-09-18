@@ -10,7 +10,7 @@ Run a complete Agent-to-Agent (A2A) payment flow using the x402 payments extensi
 ### Client (React app)
 - Presents a simple UI for the A2A flow, uses Crossmint Wallets to create/load the payer wallet, sends an ERC‑20 `transfer` from that wallet, submits the tx hash back over x402, and live-updates balances and status once the server confirms.
 
-### Visuals
+### Sequence Flow
 
 ```mermaid
 sequenceDiagram
