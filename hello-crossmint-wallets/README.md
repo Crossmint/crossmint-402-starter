@@ -46,6 +46,11 @@ sequenceDiagram
 cp env.example .env
 ```
 
+- `RPC_URL`: RPC URL for the merchant server to connect to
+- `MERCHANT_ADDRESS`: the merchant payee address (required)
+- `ASSET_ADDRESS` (optional): defaults to USDC on Base Sepolia `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
+- `X402_NETWORK` (optional): defaults to `base-sepolia`
+
 ### 2) Install dependencies
 ```bash
 npm install
@@ -66,7 +71,7 @@ npm run dev
 - AgentCard: http://localhost:10000/.well-known/agent-card.json
 
 ## Note
-- Crossmint is the payer in this demo. You do not need a private key; the Crossmint wallet service signs and sends the transfer, and the server verifies it on-chain.
+- Crossmint is the payer in this demo. You do not need a user private key; the Crossmint wallet service signs and sends the transfer, and the server verifies it on-chain. The merchant config only requires `MERCHANT_ADDRESS`.
 
 ## Getting testnet tokens
 - Base Sepolia USDC: use the Circle Faucet at [https://faucet.circle.com/](https://faucet.circle.com/) and send to your Crossmint wallet address.

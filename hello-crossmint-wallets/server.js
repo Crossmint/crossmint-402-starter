@@ -1,5 +1,5 @@
 import express from "express";
-import { JsonRpcProvider, Wallet, Contract, Interface } from "ethers";
+import { JsonRpcProvider, Contract, Interface } from "ethers";
 import { DefaultRequestHandler, InMemoryTaskStore } from "@a2a-js/sdk/server";
 import { A2AExpressApp } from "@a2a-js/sdk/server/express";
 
@@ -11,8 +11,7 @@ const X402_PAYLOAD_KEY = "x402.payment.payload";
 const X402_RECEIPTS_KEY = "x402.payment.receipts";
 
 // Merchant/token configuration (env configurable)
-const MERCHANT_WALLET = process.env.MERCHANT_PRIVATE_KEY ? new Wallet(process.env.MERCHANT_PRIVATE_KEY) : undefined;
-const MERCHANT_ADDRESS = MERCHANT_WALLET ? MERCHANT_WALLET.address : undefined; // the payee/recipient
+const MERCHANT_ADDRESS = process.env.MERCHANT_ADDRESS; // the payee/recipient (required)
 const ASSET_ADDRESS = process.env.ASSET_ADDRESS || "0x036CbD53842c5426634e7929541eC2318f3dCF7e"; // usdc on base sepolia
 const X402_NETWORK = process.env.X402_NETWORK || "base-sepolia"; // e.g., "base" or "base-sepolia"
 const PRICE_USDC = process.env.PRICE_USDC || "1"; // decimal string, e.g., "1" or "1.50"
@@ -21,7 +20,6 @@ const MAX_TIMEOUT_SECONDS = parseInt(process.env.MAX_TIMEOUT_SECONDS || "600", 1
 
 // On-chain settlement configuration (set these for a fully functional demo)
 const RPC_URL = process.env.RPC_URL; // e.g. Base mainnet/sepolia RPC
-const MERCHANT_PRIVATE_KEY = process.env.MERCHANT_PRIVATE_KEY; // merchant signer key
 
 const ERC20_METADATA_ABI = [
   "function name() view returns (string)",
@@ -393,16 +391,12 @@ class MerchantExecutor {
 
 async function main() {
   // Validate critical configuration before starting the server
-  if (!MERCHANT_PRIVATE_KEY) {
-    console.error("[server] MERCHANT_PRIVATE_KEY is required. Set it in your environment.");
-    process.exit(1);
-  }
   if (!RPC_URL) {
     console.error("[server] RPC_URL is required for settlement. Set it in your environment.");
     process.exit(1);
   }
   if (!MERCHANT_ADDRESS) {
-    console.error("[server] MERCHANT_ADDRESS could not be derived from MERCHANT_PRIVATE_KEY.");
+    console.error("[server] MERCHANT_ADDRESS is required. Set MERCHANT_ADDRESS in your environment.");
     process.exit(1);
   }
 
@@ -432,8 +426,7 @@ async function main() {
 
   const taskStore = new InMemoryTaskStore();
   const sharedProvider = RPC_URL ? new JsonRpcProvider(RPC_URL) : undefined;
-  const sharedSigner = MERCHANT_PRIVATE_KEY && sharedProvider ? new Wallet(MERCHANT_PRIVATE_KEY, sharedProvider) : undefined;
-  const executor = new MerchantExecutor(sharedProvider, sharedSigner);
+  const executor = new MerchantExecutor(sharedProvider, undefined);
   const requestHandler = new DefaultRequestHandler(agentCard, taskStore, executor);
 
   const a2a = new A2AExpressApp(requestHandler);
