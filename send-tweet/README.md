@@ -2,6 +2,16 @@
 
 A2A agent that sends tweets on X/Twitter for payment using the x402 payments extension and the `direct-transfer` scheme. The client uses Crossmint Wallets to pay USDC via an on-chain ERC‑20 transfer; the server verifies the transfer on-chain and posts the tweet via Twitter API v2 (optional image supported).
 
+<div align="center">
+
+[![Crossmint_Wallets_with_A2A_402_protocol](./send-tweet.gif)](https://www.youtube.com/watch?v=1NdFBqG1JVk)
+
+Watch the video walkthrough of this codebase [here](https://www.youtube.com/watch?v=1NdFBqG1JVk)
+
+</div>
+
+
+
 ### What it does
 
 - Server (tweet agent):
