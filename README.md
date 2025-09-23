@@ -1,4 +1,4 @@
-# Crossmint <> x402 Starter Code
+# Agentic Finance & Crossmint
 
 1. [`basic-402`](./basic-402/): Minimal Express TypeScript server with x402 paywall
 2. [`hello-eoa`](./hello-eoa/): Minimal merchant/client example using the official A2A JS SDK with the x402 payments extension.Client signs an EIP‑3009 authorization; server verifies and settles on-chain.
