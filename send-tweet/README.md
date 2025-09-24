@@ -4,9 +4,9 @@ A2A agent that sends tweets on X/Twitter for payment using the x402 payments ext
 
 <div align="center">
 
-[![Crossmint_Wallets_with_A2A_402_protocol](./send-tweet.gif)](https://www.youtube.com/watch?v=1NdFBqG1JVk)
+[![Crossmint_Wallets_with_A2A_402_protocol](./send-tweet.gif)](https://youtu.be/NlAtssVK5Rg)
 
-Watch the video walkthrough of this codebase [here](https://www.youtube.com/watch?v=1NdFBqG1JVk)
+Watch the video walkthrough of this codebase [here](https://youtu.be/NlAtssVK5Rg)
 
 </div>
 

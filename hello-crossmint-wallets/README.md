@@ -4,9 +4,9 @@ Run a complete Agent-to-Agent (A2A) payment flow using the x402 payments extensi
 
 <div align="center">
 
-[![Crossmint_Wallets_with_A2A_402_protocol](./a2a-crossmint.gif)](https://www.youtube.com/watch?v=Esoqx7SWqaI)
+[![Crossmint_Wallets_with_A2A_402_protocol](./a2a-crossmint.gif)](https://youtu.be/kEWolUayE_Q)
 
-Watch the video walkthrough of this codebase [here](https://www.youtube.com/watch?v=Esoqx7SWqaI)
+Watch the video walkthrough of this codebase [here](https://youtu.be/kEWolUayE_Q)
 
 </div>
 
