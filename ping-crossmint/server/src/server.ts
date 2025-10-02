@@ -12,7 +12,7 @@ const payTo = process.env.PAY_TO || "0x233521928665E16de96267D17313571687eC41b7"
 const network = (process.env.NETWORK || "base-sepolia") as "base-sepolia" | "base" | "avalanche-fuji" | "avalanche" | "iotex" | "solana-devnet" | "solana" | "sei" | "sei-testnet" | "polygon" | "polygon-amoy";
 
 app.use(cors({
-  origin: ["http://localhost:5173", "http://localhost:3000", "https://ping-crossmint-client.vercel.app/"],
+  origin: ["http://localhost:5173", "http://localhost:3000", "https://ping-crossmint-client.vercel.app"],
   credentials: true,
 }));
 
