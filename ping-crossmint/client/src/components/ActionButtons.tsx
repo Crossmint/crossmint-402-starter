@@ -1,10 +1,11 @@
 import React from 'react';
-import type { WalletState, BalanceState } from '../types';
+import type { WalletState, BalanceState, SignerType } from '../types';
 
 interface ActionButtonsProps {
     walletState: WalletState;
     balanceState: BalanceState;
     apiKey: string;
+    signerType: SignerType;
     onInitializeWallet: () => void;
     onDeployWallet: () => void;
     onRefreshBalance: () => void;
@@ -23,6 +24,7 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
     walletState,
     balanceState,
     apiKey,
+    signerType,
     onInitializeWallet,
     onDeployWallet,
     onRefreshBalance,
@@ -33,19 +35,25 @@ export const ActionButtons: React.FC<ActionButtonsProps> = ({
     const { wallet, isDeployed } = walletState;
     const { isLoading } = balanceState;
 
+    // API key validation based on signer type
+    const canInitialize = signerType === 'email-otp'
+        ? apiKey.startsWith('ck_')  // Email OTP needs client API key
+        : apiKey.startsWith('sk_'); // API key signer needs server API key
+    const isButtonEnabled = canInitialize && !loadingStates.initializeWallet && !isCriticalLoading;
+
     return (
         <>
             {!wallet && (
                 <button
                     onClick={onInitializeWallet}
-                    disabled={!apiKey || loadingStates.initializeWallet || isCriticalLoading}
+                    disabled={!isButtonEnabled}
                     style={{
                         padding: '10px 20px',
-                        backgroundColor: apiKey && !loadingStates.initializeWallet && !isCriticalLoading ? '#007bff' : '#ccc',
+                        backgroundColor: isButtonEnabled ? '#007bff' : '#ccc',
                         color: 'white',
                         border: 'none',
                         borderRadius: '4px',
-                        cursor: apiKey && !loadingStates.initializeWallet && !isCriticalLoading ? 'pointer' : 'not-allowed',
+                        cursor: isButtonEnabled ? 'pointer' : 'not-allowed',
                         fontSize: '14px'
                     }}
                 >

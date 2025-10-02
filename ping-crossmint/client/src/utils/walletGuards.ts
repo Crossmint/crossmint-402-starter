@@ -48,14 +48,17 @@ export async function checkWalletDeployment(
  */
 export async function deployWallet(wallet: any): Promise<string> {
   console.log("🚀 Deploying wallet...");
+  console.log("🔍 Wallet instance:", { address: wallet.address, type: typeof wallet });
 
   try {
     const evmWallet = EVMWallet.from(wallet);
 
+    console.log("📝 Attempting sendTransaction for deployment...");
+
     // Deploy wallet with a minimal self-transfer (1 wei)
     const deploymentTx = await evmWallet.sendTransaction({
       to: wallet.address,
-      value: "1", // 1 wei
+      value: 1n, // 1 wei
       data: "0x"
     });
 
@@ -64,6 +67,7 @@ export async function deployWallet(wallet: any): Promise<string> {
     return deploymentTx.hash || `deployment_tx_${Date.now()}`;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error("❌ Deployment error details:", error);
 
     if (errorMsg.includes('insufficient') || errorMsg.includes('balance')) {
       throw new Error("Insufficient ETH balance for deployment gas fees");

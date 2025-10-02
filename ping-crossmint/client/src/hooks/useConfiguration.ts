@@ -1,9 +1,9 @@
 import { useState, useCallback } from 'react';
-import type { Config, SupportedChain } from '../types';
+import type { Config, SupportedChain, SignerType } from '../types';
 import { DEFAULT_CONFIG } from '../constants/config';
 
 const generateConfigHash = (config: Config): string => {
-    return `${config.testEmail}-${config.chain}-${config.serverUrl}`;
+    return `${config.testEmail}-${config.chain}-${config.serverUrl}-${config.signerType}`;
 };
 
 export const useConfiguration = () => {
@@ -28,6 +28,10 @@ export const useConfiguration = () => {
         updateConfig({ serverUrl });
     }, [updateConfig]);
 
+    const updateSignerType = useCallback((signerType: SignerType) => {
+        updateConfig({ signerType });
+    }, [updateConfig]);
+
     return {
         config,
         configHash,
@@ -35,5 +39,6 @@ export const useConfiguration = () => {
         updateEmail,
         updateChain,
         updateServerUrl,
+        updateSignerType,
     };
 };

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useAuth } from '@crossmint/client-sdk-react-ui';
 import { useConfiguration } from '../hooks/useConfiguration';
 import { useCrossmintWallet } from '../hooks/useCrossmintWallet';
 import { useX402Payments } from '../hooks/useX402Payments';
@@ -10,11 +11,23 @@ import type { LogEntry } from '../types';
 interface CrossmintPingProps {
     apiKey: string;
     setApiKey: (key: string) => void;
+    configContext: ReturnType<typeof useConfiguration>;
 }
 
-export function CrossmintPing({ apiKey, setApiKey }: CrossmintPingProps) {
-    // Configuration management
-    const { config, configHash, updateEmail, updateChain, updateServerUrl } = useConfiguration();
+export function CrossmintPing({ apiKey, setApiKey, configContext }: CrossmintPingProps) {
+    // Authentication for email OTP - only available when providers are mounted
+    type AuthSubset = Pick<ReturnType<typeof useAuth>, 'login' | 'logout' | 'user' | 'jwt'>;
+    let authContext: AuthSubset = { login: () => {}, logout: () => {}, user: undefined, jwt: undefined };
+    try {
+        authContext = useAuth();
+    } catch (e) {
+        // useAuth throws if CrossmintAuthProvider is not mounted
+        // This is expected when no API key is entered yet
+    }
+    const { login, logout, user, jwt } = authContext;
+
+    // Configuration management - passed from App to persist across provider mounting
+    const { config, configHash, updateEmail, updateChain, updateServerUrl, updateSignerType } = configContext;
 
     // State management
     const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -55,11 +68,17 @@ export function CrossmintPing({ apiKey, setApiKey }: CrossmintPingProps) {
         walletState,
         initializeWallet: initializeWalletHook,
         deployWalletOnChain: deployWalletHook,
-        resetWallet
+        resetWallet,
+        sendOtp,
+        submitOtp,
+        rejectOtp,
+        currentOtp,
+        setCurrentOtp
     } = useCrossmintWallet({
         apiKey,
-        email: config.testEmail,
+        email: config.signerType === 'email-otp' ? (user?.email || '') : config.testEmail,
         chain: config.chain,
+        signerType: config.signerType,
         onLog: addLog
     });
 
@@ -103,6 +122,11 @@ export function CrossmintPing({ apiKey, setApiKey }: CrossmintPingProps) {
     };
 
     const deployWallet = async () => {
+        // Log authentication status for debugging
+        if (config.signerType === 'email-otp') {
+            addLog(`🔍 Auth check - User: ${user?.email || 'Not logged in'}, JWT: ${jwt ? 'Present' : 'Missing'}`, 'info');
+        }
+
         setLoading('deployWallet', true);
         try {
             await deployWalletHook();
@@ -186,7 +210,9 @@ export function CrossmintPing({ apiKey, setApiKey }: CrossmintPingProps) {
 
 
 
-    const isApiKeyValid = apiKey.startsWith('sk_');
+    const isApiKeyValid = config.signerType === 'email-otp'
+        ? apiKey.startsWith('ck_')  // Email OTP needs client API key
+        : apiKey.startsWith('sk_'); // API key signer needs server API key
 
     return (
         <div style={{
@@ -222,9 +248,17 @@ export function CrossmintPing({ apiKey, setApiKey }: CrossmintPingProps) {
                         onUpdateEmail={updateEmail}
                         onUpdateChain={updateChain}
                         onUpdateServerUrl={updateServerUrl}
+                        onUpdateSignerType={updateSignerType}
                         apiKey={apiKey}
                         onUpdateApiKey={setApiKey}
                         isMinimal={false}
+                        otpRequired={walletState.otpRequired}
+                        otpSent={walletState.otpSent}
+                        currentOtp={currentOtp}
+                        onOtpChange={setCurrentOtp}
+                        onSendOtp={sendOtp}
+                        onSubmitOtp={() => submitOtp(currentOtp)}
+                        onRejectOtp={rejectOtp}
                     />
 
                     {/* Server Status */}
@@ -233,6 +267,61 @@ export function CrossmintPing({ apiKey, setApiKey }: CrossmintPingProps) {
                         autoRefresh={true}
                         refreshInterval={30000}
                     />
+
+                    {/* Authentication status for Email OTP */}
+                    {config.signerType === 'email-otp' && isApiKeyValid && (
+                        <div style={{
+                            background: user ? '#d4edda' : '#fff3cd',
+                            border: `1px solid ${user ? '#c3e6cb' : '#ffeaa7'}`,
+                            borderRadius: '8px',
+                            padding: '1rem'
+                        }}>
+                            <div style={{ fontWeight: 'bold', marginBottom: '0.5rem', color: user ? '#155724' : '#856404' }}>
+                                {user ? '✅ Authenticated' : '🔐 Authentication Required'}
+                            </div>
+                            {user ? (
+                                <>
+                                    <div style={{ fontSize: '14px', color: '#155724', marginBottom: '0.5rem' }}>
+                                        Logged in as: {user.email ?? 'Authenticated user'}
+                                    </div>
+                                    <button
+                                        onClick={logout}
+                                        style={{
+                                            padding: '8px 16px',
+                                            backgroundColor: '#dc3545',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            cursor: 'pointer',
+                                            fontSize: '14px'
+                                        }}
+                                    >
+                                        Logout
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    <div style={{ fontSize: '14px', color: '#856404', marginBottom: '0.5rem' }}>
+                                        Email OTP signer requires authentication. Click below to log in.
+                                    </div>
+                                    <button
+                                        onClick={login}
+                                        style={{
+                                            padding: '8px 16px',
+                                            backgroundColor: '#007bff',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            cursor: 'pointer',
+                                            fontSize: '14px'
+                                        }}
+                                    >
+                                        Login with Crossmint
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    )}
 
                     {/* API Key validation message */}
                     {!isApiKeyValid && (
@@ -244,10 +333,16 @@ export function CrossmintPing({ apiKey, setApiKey }: CrossmintPingProps) {
                             textAlign: 'center'
                         }}>
                             <div style={{ color: '#004085', fontWeight: 'bold', marginBottom: '0.5rem' }}>
-                                🔑 Enter your Crossmint Server API Key to get started
+                                {config.signerType === 'api-key'
+                                    ? '🔑 Enter your Crossmint Server API Key to get started'
+                                    : '📧 Enter your Crossmint Client API Key for Email OTP'
+                                }
                             </div>
                             <div style={{ color: '#004085', fontSize: '14px' }}>
-                                Your API key should start with 'sk_' (server key). Once entered, wallet functionality will be available.
+                                {config.signerType === 'api-key'
+                                    ? 'Your API key should start with \'sk_\' (server key). Once entered, wallet functionality will be available.'
+                                    : 'Email OTP signer requires a Client API key starting with \'ck_\'. Once you add your key, you\'ll need to log in.'
+                                }
                             </div>
                         </div>
                     )}
@@ -282,7 +377,7 @@ export function CrossmintPing({ apiKey, setApiKey }: CrossmintPingProps) {
                             }}
                             onClick={() => setIsInstructionsExpanded(!isInstructionsExpanded)}
                         >
-                            <h4 style={{ margin: 0 }}>ℹ️ How the Manual x402 + Crossmint flow works</h4>
+                            <h4 style={{ margin: 0 }}>ℹ️ How it works</h4>
                             <span style={{
                                 fontSize: '18px',
                                 transform: isInstructionsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
@@ -312,11 +407,6 @@ export function CrossmintPing({ apiKey, setApiKey }: CrossmintPingProps) {
                                     <li><strong>Payment Execution:</strong> If approved, Crossmint wallet signs the payment authorization</li>
                                     <li><strong>Server Verifies & Responds:</strong> Server validates signature and returns protected content</li>
                                 </ol>
-                                <div style={{ background: '#fff3cd', padding: '0.75rem', borderRadius: '4px', margin: '1rem 0', fontSize: '0.8rem', border: '1px solid #ffeaa7' }}>
-                                    <p style={{ margin: '0 0 8px 0' }}><strong>⚡ Manual Flow:</strong> This demo shows the x402 payment details before executing, giving users full control!</p>
-                                    <p style={{ margin: 0 }}>The server still sets the payment amount ($0.001), but now you can see and approve each payment.</p>
-                                </div>
-                                <p style={{ fontSize: '0.8rem', margin: 0 }}><strong>💡 Note:</strong> This demonstrates transparent micropayments where users can review payment details before authorizing the transaction.</p>
                             </div>
                         </div>
                     </div>
@@ -372,6 +462,7 @@ export function CrossmintPing({ apiKey, setApiKey }: CrossmintPingProps) {
                                     walletState={walletState}
                                     balanceState={balanceState}
                                     apiKey={apiKey}
+                                    signerType={config.signerType}
                                     onInitializeWallet={initializeWallet}
                                     onDeployWallet={deployWallet}
                                     onRefreshBalance={fetchWalletBalances}
