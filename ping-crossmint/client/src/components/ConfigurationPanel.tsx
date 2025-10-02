@@ -190,7 +190,7 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                         </label>
                         <input
                             type="url"
-                            placeholder="http://localhost:3100"
+                            placeholder="https://ping-crossmint-server.vercel.app/"
                             value={config.serverUrl}
                             onChange={e => onUpdateServerUrl(e.target.value)}
                             style={{
@@ -423,7 +423,7 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                         </label>
                         <input
                             type="url"
-                            placeholder="http://localhost:3100"
+                            placeholder="https://ping-crossmint-server.vercel.app/"
                             value={config.serverUrl}
                             onChange={e => onUpdateServerUrl(e.target.value)}
                             style={{
