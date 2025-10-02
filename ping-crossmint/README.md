@@ -1,141 +1,103 @@
 # ping-crossmint
 
-A demonstration of Crossmint wallet integration with x402 payment protocol for protected API endpoints.
+Demonstrates Crossmint smart wallet integration with the x402 payment protocol.
 
-## Overview
+## What it does
 
-This project showcases how to use Crossmint smart wallets to automatically handle payments for HTTP 402 (Payment Required) protected endpoints. It includes:
+A React client and Express server that show how Crossmint wallets handle HTTP 402 payment-required responses. The client creates a smart wallet, makes requests to protected endpoints, and signs payment authorizations. The server uses x402 middleware to require payment before serving content.
 
-- **Client**: React application with Crossmint wallet integration
-- **Server**: Express server with x402 payment middleware
-- **Demo**: Interactive interface for wallet creation, deployment, and payment testing
+## Components
 
-## Features
+**Client** (React + Vite)
+- Crossmint wallet creation via SDK
+- Two signer types: API key (server-side) and Email OTP (client-side)
+- x402 payment interceptor integration
+- Wallet deployment utilities
+- Balance checking (ETH, USDC)
 
-- 🔐 Server API key authentication
-- 📧 Email-based wallet creation
-- 🏗️ Smart wallet deployment detection and management
-- 💰 Automatic 402 payment handling with x402 protocol
-- 🔧 EIP-1271 signature support for deployed wallets
-- 💎 Real-time ETH and USDC balance display
-- 🔄 Manual balance refresh functionality
-- 📋 Comprehensive configuration display (addresses, contracts, deployment status)
-- 📊 Real-time logging and status updates
+**Server** (Express)
+- x402 payment middleware
+- Protected `/ping` endpoint requiring $0.001 USDC
+- EIP-712 signature verification
+- Health check endpoint at `/health`
 
-## Quick Start
+## Setup
 
-### Prerequisites
-- Node.js 18+
-- A Crossmint server API key (starts with `sk_`)
+Requires Node.js 18+ and a Crossmint API key:
+- Server API key (`sk_*`) for API key signer
+- Client API key (`ck_*`) for Email OTP signer
 
-### Setup
-
-1. **Start the server**:
-   ```bash
-   cd server
-   npm install
-   npm run dev  # Runs on http://localhost:3100
-   ```
-
-2. **Start the client**:
-   ```bash
-   cd client
-   npm install
-   npm run dev  # Runs on http://localhost:5174
-   ```
-
-3. **Open the demo**:
-   - Navigate to http://localhost:5174
-   - Configure your setup:
-     - Enter your Crossmint server API key (starts with `sk_`)
-     - Set the test email address for wallet creation
-     - Select the blockchain network (base-sepolia, base, ethereum)
-     - Confirm the server URL (should match step 1)
-   - Click "Initialize Wallet" to create a smart wallet
-   - Click "Ping with Payment" to test 402 payment flow
-
-## Architecture
-
-```
-┌─────────────────┐    HTTP 402     ┌─────────────────┐
-│                 │ ◄──────────────► │                 │
-│   React Client  │                 │  Express Server │
-│                 │    x402 + USDC  │                 │
-│ - Crossmint SDK │ ◄──────────────► │ - x402-express  │
-│ - x402-axios    │                 │ - Payment check │
-│ - EIP-712 sign  │                 │                 │
-└─────────────────┘                 └─────────────────┘
-         │                                   │
-         ▼                                   ▼
-┌─────────────────┐                 ┌─────────────────┐
-│                 │                 │                 │
-│ Crossmint Wallet│                 │  x402 Facilita- │
-│ - Base Sepolia  │                 │  tor (External) │
-│ - Smart Contract│                 │  - Settlement   │
-│ - USDC Balance  │                 │  - Verification │
-└─────────────────┘                 └─────────────────┘
+**Server:**
+```bash
+cd server
+npm install
+npm run dev  # http://localhost:3100
 ```
 
-## Key Files
-
-- `client/src/ui/App.tsx` - Main application component
-- `client/src/ui/CrossmintPing.tsx` - Demo interface and wallet logic
-- `client/src/x402/crossmintAdapter.ts` - Crossmint ↔ x402 integration
-- `client/src/utils/walletGuards.ts` - Wallet deployment utilities
-- `server/src/server.ts` - 402-protected API server
-
-## Payment Flow
-
-1. **Initialize**: Create Crossmint wallet with server API key
-2. **Deploy** (optional): Deploy wallet to blockchain for settlement
-3. **Request**: Client makes HTTP request to protected endpoint
-4. **402 Response**: Server returns payment requirements
-5. **Sign**: Wallet signs EIP-712 payment authorization
-6. **Retry**: Client retries request with payment proof
-7. **Verify**: Server verifies signature and completes request
-8. **Settle**: External facilitator settles payment on-chain
-
-## Configuration
-
-All configuration values can be set directly in the web interface:
-
-- **Server API Key**: Your Crossmint server API key (starts with `sk_`)
-- **Test Email**: Email address for wallet creation and authentication
-- **Chain**: Blockchain network (`base-sepolia`, `base`, or `ethereum`)
-- **Server URL**: URL of your 402-protected server (default: `http://localhost:3100`)
-
-### Reactive Configuration
-
-The interface automatically handles configuration changes:
-
-- **Email Changes**: Automatically resets wallet (new email = new wallet required)
-- **Chain Changes**: Refreshes balances and updates contract addresses
-- **Server URL Changes**: Updates payment endpoints for 402 requests
-- **Visual Indicators**: Shows warnings when configuration is out of sync
-
-Default values:
-
-```typescript
-const DEFAULT_CONFIG = {
-    testEmail: "angela.temp+demo13@example.com",
-    chain: "base-sepolia",
-    serverUrl: "http://localhost:3100",
-};
+**Client:**
+```bash
+cd client
+npm install
+npm run dev  # http://localhost:5174
 ```
 
-## Notes
+## Usage
 
-- Primarily designed for Base Sepolia testnet (deployment detection currently hardcoded to Base Sepolia)
-- Requires USDC balance for payment settlement
-- Pre-deployed wallets work for payment verification but may fail settlement
-- Deployed wallets support full payment flow including settlement
-- Chain selection affects wallet creation and payment processing, but deployment detection uses Base Sepolia RPC
+1. Open http://localhost:5174
+2. Enter your Crossmint API key
+3. Configure email, chain (base-sepolia/base/ethereum), and server URL
+4. Click "Initialize Wallet" to create a smart wallet
+5. Optionally deploy the wallet on-chain
+6. Click "Make Ping" to trigger a 402 payment flow
+7. Review and approve the payment request
+8. Client signs payment and retries request
 
-## Learn More
+## Payment flow
+
+1. Client requests protected endpoint
+2. Server returns 402 with payment requirements
+3. UI displays payment approval dialog
+4. User approves payment
+5. Crossmint wallet signs EIP-712 authorization
+6. Client retries request with signature in `X-PAYMENT` header
+7. Server verifies signature and returns content
+8. External facilitator settles payment on-chain
+
+## Technical details
+
+**Signer types:**
+- API key: Server-side signer using `createWallet()`, requires `sk_*` key
+- Email OTP: Client-side signer using `getOrCreateWallet()`, requires `ck_*` key and JWT from `CrossmintAuthProvider`
+
+**Signatures:**
+- Pre-deployed wallets: ERC-6492 wrapped signatures
+- Deployed wallets: EIP-1271 contract signatures
+- Adapter handles signature format conversion for x402
+
+**Deployment:**
+- Wallets start pre-deployed (counterfactual addresses)
+- Optional deployment via self-transfer (1 wei)
+- Deployment check queries contract bytecode via viem
+
+## Key files
+
+- [client/src/hooks/useCrossmintWallet.ts](client/src/hooks/useCrossmintWallet.ts) - Wallet initialization and deployment
+- [client/src/hooks/useX402Payments.ts](client/src/hooks/useX402Payments.ts) - Payment request/execution logic
+- [client/src/utils/x402Adapter.ts](client/src/utils/x402Adapter.ts) - Crossmint to x402 signer adapter
+- [client/src/utils/walletGuards.ts](client/src/utils/walletGuards.ts) - Deployment utilities
+- [server/src/server.ts](server/src/server.ts) - Express server with x402 middleware
+
+## Dependencies
+
+Client: `@crossmint/wallets-sdk`, `@crossmint/client-sdk-react-ui`, `x402-axios`, `viem`, `axios`
+Server: `express`, `x402-express`, `cors`
+
+## References
 
 - [Crossmint Wallets SDK](https://docs.crossmint.com/wallets)
 - [x402 Payment Protocol](https://x402.org)
-- [EIP-712 Typed Data](https://eips.ethereum.org/EIPS/eip-712)
-- [EIP-1271 Smart Contract Signatures](https://eips.ethereum.org/EIPS/eip-1271)
+- [EIP-712: Typed Data Signing](https://eips.ethereum.org/EIPS/eip-712)
+- [EIP-1271: Contract Signatures](https://eips.ethereum.org/EIPS/eip-1271)
+- [ERC-6492: Pre-deployed Contract Signatures](https://eips.ethereum.org/EIPS/eip-6492)
 
 
