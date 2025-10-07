@@ -30,8 +30,17 @@ export class Host extends McpAgent<Env, never, { urlSafeId?: string }> {
     // Extract and persist userScopeId from the initial request header
     const scopeId = ctx.request.headers.get("x-user-scope-id");
     if (scopeId) {
-      await this.ctx.storage.put("userScopeId", scopeId);
-      console.log(`💾 Stored userScopeId from header: ${scopeId}`);
+      const existingScope = await this.ctx.storage.get<string>("userScopeId");
+
+      // Only store and reinitialize if this is a new/different scope
+      if (existingScope !== scopeId) {
+        await this.ctx.storage.put("userScopeId", scopeId);
+        console.log(`💾 Stored userScopeId from header: ${scopeId}`);
+
+        // Update the userScopeId in memory
+        this.userScopeId = scopeId;
+        console.log(`✅ Updated runtime userScopeId to: ${scopeId}`);
+      }
     }
     return super.onConnect(conn, ctx);
   }
@@ -40,13 +49,15 @@ export class Host extends McpAgent<Env, never, { urlSafeId?: string }> {
     console.log("🏠 Host MCP Server initializing...");
     console.log(`📝 DO instance name: ${this.name}`);
 
-    // Get userScopeId from DO storage (set on first connection)
+    // IMPORTANT: For MCP streamable-http, the first request includes the x-user-scope-id header
+    // but init() is called BEFORE onConnect, so we can't rely on storage here.
+    // We'll initialize with a placeholder and update in onConnect
     let userScopeId = await this.ctx.storage.get<string>("userScopeId");
 
     if (!userScopeId) {
-      // Fallback to this.name for shared/legacy instances
-      userScopeId = this.name;
-      console.log(`⚠️ No userScopeId in storage; using DO name: ${userScopeId}`);
+      // Use a temporary placeholder - will be updated in onConnect
+      userScopeId = "pending";
+      console.log(`⚠️ No userScopeId in storage yet; using placeholder (will be set on connection)`);
     } else {
       console.log(`✅ Using userScopeId from storage: ${userScopeId}`);
     }
@@ -233,6 +244,15 @@ export class Host extends McpAgent<Env, never, { urlSafeId?: string }> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+
+    // CRITICAL: Extract userScopeId from header on EVERY request
+    // This ensures we have the correct scope even on the first MCP connection
+    const scopeId = request.headers.get("x-user-scope-id");
+    if (scopeId && scopeId !== this.userScopeId) {
+      console.log(`🔄 Updating userScopeId from ${this.userScopeId} to ${scopeId}`);
+      this.userScopeId = scopeId;
+      await this.ctx.storage.put("userScopeId", scopeId);
+    }
 
     // Internal endpoint for authenticated secret storage
     if (url.pathname === "/store-secret" && request.method === "POST") {

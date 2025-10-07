@@ -162,9 +162,9 @@ export class Guest extends Agent<Env> {
             mcpUrl = `https://${mcpUrl}`;
           }
 
-          // If already connected, just resend the tools list
-          if (this.mcpConnected && this.x402Client) {
-            console.log("🔄 Already connected to MCP, resending tools list");
+          // If already connected to the SAME URL, just resend the tools list
+          if (this.mcpConnected && this.x402Client && this.mcpUrl === mcpUrl) {
+            console.log("🔄 Already connected to same MCP URL, resending tools list");
             try {
               const tools = await this.x402Client.listTools({});
               conn.send(JSON.stringify({
@@ -186,6 +186,15 @@ export class Guest extends Agent<Env> {
               }));
             }
             return;
+          }
+
+          // If connected to a DIFFERENT URL, reset connection state
+          if (this.mcpConnected && this.mcpConnectionId && this.mcpUrl !== mcpUrl) {
+            console.log(`🔄 Switching from old MCP (${this.mcpUrl}) to new URL (${mcpUrl})`);
+            // Reset connection state to allow new connection
+            this.mcpConnected = false;
+            this.x402Client = undefined;
+            this.mcpConnectionId = undefined;
           }
 
           try {

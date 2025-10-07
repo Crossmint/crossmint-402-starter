@@ -60,8 +60,8 @@ export function getSuggestedActions(mcpConnected: boolean, hasSecrets: boolean):
   }
 
   if (hasSecrets) {
-    return ['list secrets', 'store a secret', 'wallet status'];
+    return ['list secrets', 'wallet status'];
   }
 
-  return ['store a secret', 'wallet status', 'help'];
+  return ['wallet status', 'help'];
 }

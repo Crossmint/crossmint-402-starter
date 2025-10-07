@@ -24,7 +24,7 @@ export function TransactionHistory({ show, transactions, onClose }: TransactionH
     <div className="payment-backdrop" onClick={onClose}>
       <div className="payment-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '700px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h3>💸 Transaction History</h3>
+          <h3>Transaction History</h3>
           <button
             onClick={onClose}
             style={{

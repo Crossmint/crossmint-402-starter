@@ -72,7 +72,7 @@ export function ClientApp({ apiKey }: ClientAppProps) {
   const [nerdMode, setNerdMode] = useState(true);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
-  const [mcpUrl, setMcpUrl] = useState("https://calendar-concierge.angela-temp.workers.dev/mcp");
+  const [mcpUrl, setMcpUrl] = useState("");
   const [showTransactions, setShowTransactions] = useState(false);
 
   // Agent State
@@ -156,13 +156,13 @@ export function ClientApp({ apiKey }: ClientAppProps) {
         if (!agent) {
           addMessage({
             sender: 'agent',
-            text: '⚠️ Agent not available. Please refresh the page.'
+            text: 'Agent not available. Please refresh the page.'
           });
           return;
         }
         addMessage({
           sender: 'system',
-          text: `🔌 Connecting to MCP server at ${mcpUrl}...`
+          text: `Connecting to MCP server at ${mcpUrl}...`
         });
         agent.send(JSON.stringify({ type: "connect_mcp", url: mcpUrl }));
         break;
@@ -171,14 +171,14 @@ export function ClientApp({ apiKey }: ClientAppProps) {
         if (!mcpConnected) {
           addMessage({
             sender: 'agent',
-            text: '⚠️ Please connect to MCP first. Say "connect" to get started.'
+            text: 'Please connect to MCP first. Say "connect" to get started.'
           });
           return;
         }
         if (!agent) return;
         addMessage({
           sender: 'system',
-          text: '📋 Listing secrets...'
+          text: 'Listing secrets...'
         });
         agent.send(JSON.stringify({
           type: "call_tool",
@@ -198,7 +198,7 @@ export function ClientApp({ apiKey }: ClientAppProps) {
         if (walletInfo) {
           addMessage({
             sender: 'agent',
-            text: '💰 Here\'s your wallet information:',
+            text: 'Here\'s your wallet information:',
             inlineComponent: {
               type: 'wallet-card',
               data: {
@@ -212,7 +212,7 @@ export function ClientApp({ apiKey }: ClientAppProps) {
         } else {
           addMessage({
             sender: 'agent',
-            text: '⚠️ Wallet information not available yet. Please wait for initialization.'
+            text: 'Wallet information not available yet. Please wait for initialization.'
           });
         }
         break;
@@ -221,7 +221,7 @@ export function ClientApp({ apiKey }: ClientAppProps) {
         if (!mcpConnected) {
           addMessage({
             sender: 'agent',
-            text: '⚠️ Please connect to MCP first. Say "connect" to get started.'
+            text: 'Please connect to MCP first. Say "connect" to get started.'
           });
           return;
         }
@@ -230,7 +230,7 @@ export function ClientApp({ apiKey }: ClientAppProps) {
         if (intent.extractedData?.secretId) {
           addMessage({
             sender: 'system',
-            text: `🔐 Retrieving secret ${intent.extractedData.secretId}...`
+            text: `Retrieving secret ${intent.extractedData.secretId}...`
           });
           agent.send(JSON.stringify({
             type: "call_tool",
@@ -240,7 +240,7 @@ export function ClientApp({ apiKey }: ClientAppProps) {
         } else {
           addMessage({
             sender: 'agent',
-            text: '⚠️ Please provide a secret ID. For example: "retrieve secret <id>"'
+            text: 'Please provide a secret ID. For example: "retrieve secret <id>"'
           });
         }
         break;
@@ -249,13 +249,13 @@ export function ClientApp({ apiKey }: ClientAppProps) {
         if (!mcpConnected) {
           addMessage({
             sender: 'agent',
-            text: '⚠️ Please connect to MCP first. Say "connect" to get started.'
+            text: 'Please connect to MCP first. Say "connect" to get started.'
           });
           return;
         }
         addMessage({
           sender: 'agent',
-          text: '📝 To store a secret, I\'ll need to implement a form or multi-step conversation. For now, you can use the old UI at /client-old.html'
+          text: 'To store a secret, visit the "My MCP" page at /?view=my-mcp or use the guest interface.'
         });
         break;
 
@@ -272,14 +272,14 @@ export function ClientApp({ apiKey }: ClientAppProps) {
     if (!agent) {
       addMessage({
         sender: 'agent',
-        text: '⚠️ Agent not available. Please refresh the page.'
+        text: 'Agent not available. Please refresh the page.'
       });
       return;
     }
 
     addMessage({
       sender: 'system',
-      text: `🔌 Connecting to MCP server at ${mcpUrl}...`
+      text: `Connecting to MCP server at ${mcpUrl}...`
     });
     agent.send(JSON.stringify({ type: "connect_mcp", url: mcpUrl }));
   }, [agent, mcpUrl, addMessage]);
@@ -289,7 +289,7 @@ export function ClientApp({ apiKey }: ClientAppProps) {
     setTools([]);
     addMessage({
       sender: 'system',
-      text: '🔌 Disconnected from MCP'
+      text: 'Disconnected from MCP'
     });
     addLog('client', 'Disconnected from MCP');
   }, [addMessage, addLog]);
@@ -337,7 +337,7 @@ export function ClientApp({ apiKey }: ClientAppProps) {
             if (messages.length === 0) {
               addMessage({
                 sender: 'agent',
-                text: '👋 Welcome to Secret Vault MCP!\n\nI\'m your personal assistant for secure, pay-per-use secret storage powered by Crossmint smart wallets.',
+                text: 'Welcome to Secret Vault MCP!\n\nI\'m your personal assistant for secure, pay-per-use secret storage powered by Crossmint smart wallets.',
                 inlineComponent: {
                   type: 'wallet-card',
                   data: {
@@ -363,7 +363,7 @@ export function ClientApp({ apiKey }: ClientAppProps) {
             setTools(data.tools || []);
             addMessage({
               sender: 'system',
-              text: `✅ Connected to MCP at ${data.mcpUrl || mcpUrl}! Found ${data.tools?.length || 0} tools`
+              text: `Connected to MCP at ${data.mcpUrl || mcpUrl}. Found ${data.tools?.length || 0} tools.`
             });
             addMessage({
               sender: 'agent',
@@ -382,7 +382,7 @@ export function ClientApp({ apiKey }: ClientAppProps) {
           case "payment_required":
             addMessage({
               sender: 'system',
-              text: `💳 Payment required: $${(Number(data.requirements[0].maxAmountRequired) / 1_000_000).toFixed(2)} USD`
+              text: `Payment required: $${(Number(data.requirements[0].maxAmountRequired) / 1_000_000).toFixed(2)} USD`
             });
             setPaymentReq(data.requirements[0]);
             setConfirmationId(data.confirmationId);
@@ -392,7 +392,7 @@ export function ClientApp({ apiKey }: ClientAppProps) {
           case "tool_result":
             addMessage({
               sender: 'agent',
-              text: `✅ Tool result:\n\n${data.result}`
+              text: `Tool result:\n\n${data.result}`
             });
             // Track successful payment transaction
             if (paymentReq) {
@@ -410,14 +410,14 @@ export function ClientApp({ apiKey }: ClientAppProps) {
           case "tool_error":
             addMessage({
               sender: 'agent',
-              text: `❌ Tool error:\n\n${data.result}`
+              text: `Error:\n\n${data.result}`
             });
             break;
 
           case "wallet_deployed":
             addMessage({
               sender: 'system',
-              text: `✨ Wallet deployed successfully!\n\nTransaction: ${data.txHash}`
+              text: `Wallet deployed successfully!\n\nTransaction: ${data.txHash}`
             });
             // Track deployment transaction
             addTransaction({
@@ -432,7 +432,7 @@ export function ClientApp({ apiKey }: ClientAppProps) {
           case "error":
             addMessage({
               sender: 'agent',
-              text: `❌ Error: ${data.message}`
+              text: `Error: ${data.message}`
             });
             break;
         }
@@ -486,9 +486,9 @@ export function ClientApp({ apiKey }: ClientAppProps) {
           onMcpUrlChange={setMcpUrl}
           tools={tools}
           logs={logs}
+          transactions={transactions}
           onConnectMCP={handleConnectMCP}
           onDisconnectMCP={handleDisconnectMCP}
-          onListSecrets={() => handleSendMessage('list secrets')}
           onClearLogs={() => setLogs([])}
           onExportChat={handleExportChat}
           onExportLogs={handleExportLogs}

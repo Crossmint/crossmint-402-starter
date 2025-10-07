@@ -117,6 +117,22 @@ export default {
           );
         }
 
+        // Handle CORS preflight for MCP endpoints
+        if (request.method === "OPTIONS") {
+          const origin = request.headers.get("Origin") || "*";
+          const requestedHeaders = request.headers.get("Access-Control-Request-Headers") || "Content-Type, Authorization, X-Requested-With, x-user-scope-id";
+          return new Response(null, {
+            status: 204,
+            headers: {
+              "Access-Control-Allow-Origin": origin,
+              "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+              "Access-Control-Allow-Headers": requestedHeaders,
+              "Access-Control-Max-Age": "86400",
+              "Vary": "Origin, Access-Control-Request-Headers"
+            }
+          });
+        }
+
         // Look up user by urlSafeId (hash)
         const user = await env.SECRETS.get(`usersByHash:${urlSafeId}`, { type: "json" }) as { userId?: string, walletAddress?: string } | null;
         if (!user?.walletAddress) {
@@ -146,7 +162,18 @@ export default {
 
         const response = await Host.serve(`/mcp/users/${urlSafeId}`, { binding: "Host" }).fetch(scopedRequest, env, ctx);
         console.log(`✅ Host response status: ${response.status}`);
-        return response;
+
+        // Add CORS headers to MCP response
+        const corsHeaders = new Headers(response.headers);
+        corsHeaders.set("Access-Control-Allow-Origin", "*");
+        corsHeaders.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        corsHeaders.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, x-user-scope-id");
+
+        return new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: corsHeaders
+        });
       } catch (error) {
         console.error("Per-user MCP error:", error);
         return new Response(

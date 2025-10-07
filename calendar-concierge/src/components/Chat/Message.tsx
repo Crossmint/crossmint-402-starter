@@ -59,19 +59,35 @@ function WalletCard({ data }: { data: any }) {
   return (
     <div style={{ padding: '1rem' }}>
       <div style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.5rem' }}>
-        💰 Wallet Information
+        Wallet Information
       </div>
       <div style={{ fontSize: '0.8125rem', color: '#64748b', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         <div>
-          <strong>Guest:</strong>
+          <strong>Guest (Payer):</strong>
           <div className="mono" style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
             {data.guestAddress}
-            {data.deployed && <span style={{ marginLeft: '0.5rem' }}>✨ Deployed</span>}
-            {!data.deployed && <span style={{ marginLeft: '0.5rem' }}>⚡ Pre-deployed</span>}
+            {data.deployed && <span style={{
+              marginLeft: '0.5rem',
+              background: '#dcfce7',
+              color: '#166534',
+              padding: '0.125rem 0.5rem',
+              borderRadius: '4px',
+              fontSize: '0.7rem',
+              fontWeight: 600
+            }}>DEPLOYED</span>}
+            {!data.deployed && <span style={{
+              marginLeft: '0.5rem',
+              background: '#fef3c7',
+              color: '#92400e',
+              padding: '0.125rem 0.5rem',
+              borderRadius: '4px',
+              fontSize: '0.7rem',
+              fontWeight: 600
+            }}>PRE-DEPLOYED</span>}
           </div>
         </div>
         <div>
-          <strong>Host:</strong>
+          <strong>Host (Recipient):</strong>
           <div className="mono" style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
             {data.hostAddress}
           </div>
@@ -89,7 +105,7 @@ function ToolsList({ data }: { data: any }) {
   return (
     <div style={{ padding: '1rem' }}>
       <div style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.75rem' }}>
-        🛠️ Available Tools
+        Available Tools
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
         {data.tools?.map((tool: any, idx: number) => (

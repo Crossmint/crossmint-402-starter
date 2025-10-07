@@ -21,8 +21,6 @@ function MyMcpInner() {
   const [secretName, setSecretName] = useState("");
   const [secretValue, setSecretValue] = useState("");
   const [isStoringSecret, setIsStoringSecret] = useState(false);
-  const [secrets, setSecrets] = useState<any[]>([]);
-  const [isLoadingSecrets, setIsLoadingSecrets] = useState(false);
 
   const addLog = (msg: string) => setLogs((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`].slice(-100));
 
@@ -162,70 +160,6 @@ function MyMcpInner() {
     }
   }, [user?.email, email, wallet, secretName, secretValue]);
 
-  const listSecrets = useCallback(async () => {
-    const ownerEmail = user?.email || email;
-    if (!ownerEmail || !wallet) {
-      addLog("❌ Please initialize wallet first");
-      return;
-    }
-
-    try {
-      setIsLoadingSecrets(true);
-      addLog("📋 Listing secrets...");
-
-      // Extract urlSafeId from the MCP URL (the part after /users/)
-      const urlMatch = mcpUrl?.match(/\/users\/([^\/]+)/);
-      if (!urlMatch) {
-        addLog("❌ Invalid MCP URL format");
-        return;
-      }
-      const urlSafeId = urlMatch[1];
-
-      // Call the MCP server directly to list secrets
-      const response = await fetch(`${WORKER_BASE}/mcp/users/${urlSafeId}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-user-scope-id": urlSafeId
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "tools/call",
-          params: {
-            name: "listSecrets",
-            arguments: {}
-          }
-        })
-      });
-
-      if (!response.ok) {
-        addLog(`❌ Failed to list secrets: ${response.status} ${response.statusText}`);
-        return;
-      }
-
-      const result = await response.json() as any;
-      if (result.error) {
-        addLog(`❌ MCP error: ${result.error.message}`);
-        return;
-      }
-
-      // Parse the result content
-      const content = result.result?.content?.[0]?.text;
-      if (content) {
-        const parsed = JSON.parse(content);
-        setSecrets(parsed.secrets || []);
-        addLog(`✅ Found ${parsed.count || 0} secret(s)`);
-      } else {
-        addLog("❌ No content in response");
-      }
-    } catch (error) {
-      addLog(`❌ Error listing secrets: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      setIsLoadingSecrets(false);
-    }
-  }, [user?.email, email, wallet, mcpUrl]);
-
   return (
     <div style={{ maxWidth: 720, margin: "40px auto", fontFamily: "system-ui" }}>
       <h1>My MCP (Email OTP)</h1>
@@ -286,15 +220,6 @@ function MyMcpInner() {
         {mcpUrl && (
           <div>
             <strong>Your MCP URL:</strong> <code>{mcpUrl}</code>
-            <div style={{ marginTop: 8 }}>
-              <button
-                onClick={listSecrets}
-                disabled={isLoadingSecrets}
-                style={{ padding: 8, marginRight: 8 }}
-              >
-                {isLoadingSecrets ? "Loading..." : "📋 List Secrets"}
-              </button>
-            </div>
           </div>
         )}
 
@@ -332,37 +257,6 @@ function MyMcpInner() {
               >
                 {isStoringSecret ? "Storing..." : "Store Secret"}
               </button>
-            </div>
-          </div>
-        )}
-
-        {/* Secrets List Section */}
-        {secrets.length > 0 && (
-          <div style={{ marginTop: 24, padding: 16, background: "#f0f9ff", border: "1px solid #0ea5e9", borderRadius: 8 }}>
-            <h3 style={{ marginTop: 0, color: "#0c4a6e" }}>📋 Your Secrets ({secrets.length})</h3>
-            <div style={{ display: "grid", gap: 8 }}>
-              {secrets.map((secret, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    padding: 12,
-                    background: "white",
-                    border: "1px solid #e0f2fe",
-                    borderRadius: 6,
-                    fontSize: 14
-                  }}
-                >
-                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
-                    {secret.description || `Secret ${idx + 1}`}
-                  </div>
-                  <div style={{ color: "#64748b", fontSize: 12 }}>
-                    <div>ID: <code>{secret.id}</code></div>
-                    <div>Amount: ${secret.amount}</div>
-                    <div>Retrievals: {secret.retrievalCount}</div>
-                    <div>Created: {new Date(secret.createdAt).toLocaleString()}</div>
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         )}
