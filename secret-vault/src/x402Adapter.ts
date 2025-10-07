@@ -32,13 +32,16 @@ export function createX402Signer(wallet: Wallet<any>) {
       console.log("🔐 signTypedData called for address:", evm.address);
       const { domain, message, primaryType, types } = params;
 
-      console.log("🔐 Signing x402 payment:", {
-        from: evm.address,
-        to: domain?.verifyingContract,
-        primaryType,
-        amount: message?.maxAmountAllowed || 'N/A',
-        asset: message?.asset || 'N/A'
-      });
+      console.log("🔐 Full EIP-712 payload being signed:");
+      console.log("  Domain:", JSON.stringify(domain, null, 2));
+      console.log("  Message:", JSON.stringify(message, null, 2));
+      console.log("  PrimaryType:", primaryType);
+      console.log("  Types:", JSON.stringify(types, null, 2));
+
+      console.log("🔐 Key fields:");
+      console.log("  - Payer (from):", evm.address);
+      console.log("  - Recipient (to):", message?.to || message?.recipient || message?.payTo || 'MISSING');
+      console.log("  - Verifying contract:", domain?.verifyingContract);
 
       // Sign with Crossmint wallet
       console.log("📝 Calling Crossmint signTypedData...");
@@ -59,7 +62,7 @@ export function createX402Signer(wallet: Wallet<any>) {
 
       const processed = processSignature(sig.signature as string);
       console.log("📤 Processed signature ready for x402 facilitator");
-      
+
       return processed;
     }
   };

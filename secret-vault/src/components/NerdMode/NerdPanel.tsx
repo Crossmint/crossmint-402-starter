@@ -15,7 +15,6 @@ interface NerdPanelProps {
   onExportChat: () => void;
   onExportLogs: () => void;
   onExportConfig: () => void;
-  onShowTransactions: () => void;
 }
 
 export function NerdPanel({
@@ -31,9 +30,10 @@ export function NerdPanel({
   onClearLogs,
   onExportChat,
   onExportLogs,
-  onExportConfig,
-  onShowTransactions
+  onExportConfig
 }: NerdPanelProps) {
+  const [logFilter, setLogFilter] = React.useState<'all' | 'transaction' | 'payment' | 'system' | 'error'>('all');
+
   // Handler to copy logs to clipboard
   const handleCopyLogs = () => {
     const logsText = logs.map(log =>
@@ -46,6 +46,17 @@ export function NerdPanel({
       console.error('Failed to copy logs:', err);
     });
   };
+
+  // Filter logs based on selected filter
+  const filteredLogs = React.useMemo(() => {
+    if (logFilter === 'all') return logs;
+    if (logFilter === 'transaction') return logs.filter(log => log.type === 'transaction');
+    if (logFilter === 'payment') return logs.filter(log => log.type === 'payment' || log.type === 'transaction');
+    if (logFilter === 'system') return logs.filter(log => log.type === 'system' || log.type === 'info');
+    if (logFilter === 'error') return logs.filter(log => log.type === 'error');
+    return logs;
+  }, [logs, logFilter]);
+
   return (
     <div className="nerd-pane">
       {/* MCP Configuration Section */}
@@ -226,86 +237,7 @@ export function NerdPanel({
         </div>
       )}
 
-      {/* Transaction History Section */}
-      <div className="nerd-section">
-        <div className="nerd-section-header">
-          <h3>Transaction History</h3>
-        </div>
-        <div className="nerd-section-body">
-          {transactions.length === 0 ? (
-            <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: '0.8125rem', padding: '1rem' }}>
-              No transactions yet
-            </div>
-          ) : (
-            <div style={{ fontSize: '0.8125rem' }}>
-              {/* Show only the last transaction */}
-              {(() => {
-                const lastTx = transactions[transactions.length - 1];
-                return (
-                  <div style={{
-                    padding: '0.75rem',
-                    background: '#f8fafc',
-                    borderRadius: '8px',
-                    border: '1px solid #e2e8f0'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                      <span style={{
-                        background: lastTx.type === 'payment' ? '#3b82f6' : '#f59e0b',
-                        color: 'white',
-                        padding: '0.125rem 0.5rem',
-                        borderRadius: '4px',
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        textTransform: 'uppercase'
-                      }}>
-                        {lastTx.type}
-                      </span>
-                      <span style={{
-                        background: lastTx.status === 'success' ? '#22c55e' : lastTx.status === 'failed' ? '#ef4444' : '#f59e0b',
-                        color: 'white',
-                        padding: '0.125rem 0.5rem',
-                        borderRadius: '4px',
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        textTransform: 'uppercase'
-                      }}>
-                        {lastTx.status}
-                      </span>
-                    </div>
-                    <div style={{ color: '#64748b', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
-                      {lastTx.timestamp.toLocaleString()}
-                    </div>
-                    {lastTx.type === 'payment' && lastTx.amount && (
-                      <div style={{ fontWeight: 600, color: '#3b82f6', marginTop: '0.25rem' }}>
-                        {lastTx.amount}
-                      </div>
-                    )}
-                    {lastTx.txHash && (
-                      <div style={{ marginTop: '0.5rem' }}>
-                        <a
-                          href={`https://sepolia.basescan.org/tx/${lastTx.txHash}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            color: '#3b82f6',
-                            fontSize: '0.75rem',
-                            textDecoration: 'none',
-                            wordBreak: 'break-all'
-                          }}
-                        >
-                          View on Explorer ↗
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Raw Logs Section */}
+      {/* Console Logs Section */}
       <div className="nerd-section">
         <div className="nerd-section-header">
           <h3>Console Logs</h3>
@@ -326,14 +258,52 @@ export function NerdPanel({
             </button>
           </div>
         </div>
+
+        {/* Filter Buttons */}
+        <div style={{
+          display: 'flex',
+          gap: '0.5rem',
+          padding: '0.75rem',
+          borderBottom: '1px solid #e2e8f0',
+          alignItems: 'center',
+          flexWrap: 'wrap'
+        }}>
+          {(['all', 'transaction', 'payment', 'system', 'error'] as const).map((filter) => (
+            <button
+              key={filter}
+              onClick={() => setLogFilter(filter)}
+              style={{
+                padding: '0.5rem 0.75rem',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                borderRadius: '6px',
+                border: 'none',
+                cursor: 'pointer',
+                textTransform: 'uppercase',
+                background: logFilter === filter ? '#3b82f6' : '#f1f5f9',
+                color: logFilter === filter ? 'white' : '#64748b',
+                transition: 'all 0.2s',
+                whiteSpace: 'nowrap',
+                flex: '0 1 auto'
+              }}
+            >
+              {filter === 'all' ? `All (${logs.length})` :
+               filter === 'transaction' ? `Txns (${logs.filter(l => l.type === 'transaction').length})` :
+               filter === 'payment' ? `Pay (${logs.filter(l => l.type === 'payment' || l.type === 'transaction').length})` :
+               filter === 'system' ? `Sys (${logs.filter(l => l.type === 'system' || l.type === 'info').length})` :
+               `Err (${logs.filter(l => l.type === 'error').length})`}
+            </button>
+          ))}
+        </div>
+
         <div className="nerd-section-body" style={{ padding: 0 }}>
           <div className="raw-logs-container">
-            {logs.length === 0 && (
+            {filteredLogs.length === 0 && (
               <div style={{ color: '#94a3b8', textAlign: 'center', padding: '1rem' }}>
-                No logs yet
+                {logFilter === 'all' ? 'No logs yet' : `No ${logFilter} logs`}
               </div>
             )}
-            {logs.slice(-50).map((log, idx) => (
+            {filteredLogs.slice(-50).map((log, idx) => (
               <div key={idx} className="raw-log-entry">
                 <div>
                   <span className="raw-log-time">
@@ -345,6 +315,36 @@ export function NerdPanel({
                 </div>
                 <div className="raw-log-content">
                   {log.text}
+                  {log.metadata && log.type === 'transaction' && (
+                    <div style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#64748b' }}>
+                      {log.metadata.amount && <div>Amount: {log.metadata.amount}</div>}
+                      {log.metadata.resource && <div>Resource: {log.metadata.resource}</div>}
+                      {log.metadata.status && (
+                        <span style={{
+                          background: log.metadata.status === 'success' ? '#22c55e' : '#ef4444',
+                          color: 'white',
+                          padding: '0.125rem 0.375rem',
+                          borderRadius: '4px',
+                          marginTop: '0.25rem',
+                          display: 'inline-block'
+                        }}>
+                          {log.metadata.status}
+                        </span>
+                      )}
+                      {log.metadata.txHash && (
+                        <div style={{ marginTop: '0.25rem' }}>
+                          <a
+                            href={`https://sepolia.basescan.org/tx/${log.metadata.txHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ color: '#3b82f6', textDecoration: 'none' }}
+                          >
+                            View on Explorer ↗
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

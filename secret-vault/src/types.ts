@@ -40,9 +40,18 @@ export interface ChatMessage {
 }
 
 export interface Log {
-  type: 'client' | 'server' | 'system' | 'payment' | 'result' | 'error' | 'info';
+  type: 'client' | 'server' | 'system' | 'payment' | 'result' | 'error' | 'info' | 'transaction';
   text: string;
   timestamp: Date;
+  metadata?: {
+    txType?: 'payment' | 'deployment';
+    amount?: string;
+    from?: string;
+    to?: string;
+    txHash?: string;
+    resource?: string;
+    status?: 'success' | 'failed' | 'pending';
+  };
 }
 
 export interface WalletInfo {

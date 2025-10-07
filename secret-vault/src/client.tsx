@@ -6,7 +6,6 @@ import { ChatHeader } from "./components/Chat/ChatHeader";
 import { MessageList } from "./components/Chat/MessageList";
 import { ChatInput } from "./components/Chat/ChatInput";
 import { NerdPanel } from "./components/NerdMode/NerdPanel";
-import { TransactionHistory } from "./components/TransactionHistory";
 import type { ChatMessage, Log, Tool, PaymentRequirement, WalletInfo, Transaction } from "./types";
 import { detectIntent, getSuggestedActions } from "./utils/intentDetection";
 import { exportChatAsMarkdown, exportLogsAsJSON, exportWalletConfig } from "./utils/exportUtils";
@@ -15,11 +14,12 @@ interface PaymentPopupProps {
   show: boolean;
   requirements: PaymentRequirement | null;
   confirmationId: string;
+  loading: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
-function PaymentPopup({ show, requirements, confirmationId, onConfirm, onCancel }: PaymentPopupProps) {
+function PaymentPopup({ show, requirements, confirmationId, loading, onConfirm, onCancel }: PaymentPopupProps) {
   if (!show || !requirements) return null;
 
   const amountUSD = (Number(requirements.maxAmountRequired) / 1_000_000).toFixed(2);
@@ -50,12 +50,20 @@ function PaymentPopup({ show, requirements, confirmationId, onConfirm, onCancel 
           <dd className="mono">{confirmationId}</dd>
         </dl>
 
+        {loading && (
+          <div className="payment-loading">
+            <div className="spinner"></div>
+            <p>Processing payment...</p>
+            <small>Signing with EIP-712 and verifying with x402 facilitator</small>
+          </div>
+        )}
+
         <div className="payment-buttons">
-          <button className="btn-cancel" onClick={onCancel}>
+          <button className="btn-cancel" onClick={onCancel} disabled={loading}>
             Cancel
           </button>
-          <button className="btn-confirm" onClick={onConfirm}>
-            Confirm & Pay
+          <button className="btn-confirm" onClick={onConfirm} disabled={loading}>
+            {loading ? 'Processing...' : 'Confirm & Pay'}
           </button>
         </div>
       </div>
@@ -81,8 +89,6 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
     }
     return '';
   });
-  const [showTransactions, setShowTransactions] = useState(false);
-
   // Agent State
   const [mcpConnected, setMcpConnected] = useState(false);
   const [tools, setTools] = useState<Tool[]>([]);
@@ -93,6 +99,7 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
   const [showPayment, setShowPayment] = useState(false);
   const [paymentReq, setPaymentReq] = useState<PaymentRequirement | null>(null);
   const [confirmationId, setConfirmationId] = useState("");
+  const [paymentLoading, setPaymentLoading] = useState(false);
 
   // Connect to the current domain (works for both local dev and production)
   const agent = useAgent({
@@ -110,11 +117,12 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
     }]);
   }, []);
 
-  const addLog = useCallback((type: Log['type'], text: string) => {
+  const addLog = useCallback((type: Log['type'], text: string, metadata?: Log['metadata']) => {
     setLogs(prev => [...prev, {
       type,
       text,
-      timestamp: new Date()
+      timestamp: new Date(),
+      metadata
     }]);
   }, []);
 
@@ -122,12 +130,32 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
   const [walletState, setWalletState] = useState<{ wallet: any | null }>({ wallet: null });
 
   const addTransaction = useCallback((transaction: Omit<Transaction, 'id' | 'timestamp'>) => {
-    setTransactions(prev => [...prev, {
+    const newTx = {
       ...transaction,
       id: crypto.randomUUID(),
       timestamp: new Date()
-    }]);
-  }, []);
+    };
+    setTransactions(prev => [...prev, newTx]);
+
+    // Also add to logs for unified view
+    if (transaction.type === 'payment') {
+      addLog('transaction', `💳 Payment: ${transaction.amount} to ${transaction.to?.slice(0, 10)}... for ${transaction.resource}`, {
+        txType: 'payment',
+        amount: transaction.amount,
+        from: transaction.from,
+        to: transaction.to,
+        resource: transaction.resource,
+        status: transaction.status
+      });
+    } else if (transaction.type === 'deployment') {
+      addLog('transaction', `🚀 Wallet deployed: ${transaction.txHash}`, {
+        txType: 'deployment',
+        from: transaction.from,
+        txHash: transaction.txHash,
+        status: transaction.status
+      });
+    }
+  }, [addLog]);
 
   // Wallet is initialized by the agent, not the client
   // Client just receives wallet info from agent via wallet_info message
@@ -293,26 +321,40 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
   }, [agent, mcpUrl, addMessage]);
 
   const handleDisconnectMCP = useCallback(() => {
+    if (agent) {
+      // Notify Guest agent to disconnect
+      agent.send(JSON.stringify({ type: "disconnect_mcp" }));
+    }
+
     setMcpConnected(false);
     setTools([]);
+    // Clear host wallet address to avoid showing stale info
+    if (walletInfo) {
+      setWalletInfo({
+        ...walletInfo,
+        hostAddress: "Not connected to MCP"
+      });
+    }
     addMessage({
       sender: 'system',
       text: 'Disconnected from MCP'
     });
     addLog('client', 'Disconnected from MCP');
-  }, [addMessage, addLog]);
+  }, [agent, addMessage, addLog, walletInfo]);
 
   // Payment handlers
   const confirmPayment = useCallback(() => {
     if (!agent) return;
     addLog('client', `Payment confirmed: ${confirmationId}`);
+    setPaymentLoading(true); // Start loading
     agent.send(JSON.stringify({ type: "confirm", confirmationId }));
-    setShowPayment(false);
+    // Don't close modal yet - wait for result
   }, [agent, confirmationId, addLog]);
 
   const cancelPayment = useCallback(() => {
     if (!agent) return;
     addLog('client', `Payment cancelled: ${confirmationId}`);
+    setPaymentLoading(false); // Reset loading
     agent.send(JSON.stringify({ type: "cancel", confirmationId }));
     setShowPayment(false);
   }, [agent, confirmationId, addLog]);
@@ -418,6 +460,9 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
                 status: 'success'
               });
             }
+            // Payment completed successfully
+            setPaymentLoading(false);
+            setShowPayment(false);
             break;
 
           case "tool_error":
@@ -425,6 +470,9 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
               sender: 'agent',
               text: `Error:\n\n${data.result}`
             });
+            // Payment failed - reset loading state
+            setPaymentLoading(false);
+            setShowPayment(false);
             break;
 
           case "wallet_deployed":
@@ -469,6 +517,7 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
         show={showPayment}
         requirements={paymentReq}
         confirmationId={confirmationId}
+        loading={paymentLoading}
         onConfirm={confirmPayment}
         onCancel={cancelPayment}
       />
@@ -506,16 +555,6 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
           onExportChat={handleExportChat}
           onExportLogs={handleExportLogs}
           onExportConfig={handleExportConfig}
-          onShowTransactions={() => setShowTransactions(true)}
-        />
-      )}
-
-      {/* Transaction History Modal */}
-      {showTransactions && (
-        <TransactionHistory
-          show={true}
-          transactions={transactions}
-          onClose={() => setShowTransactions(false)}
         />
       )}
     </div>

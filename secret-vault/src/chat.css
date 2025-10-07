@@ -415,6 +415,11 @@
   background: #06b6d4;
 }
 
+.raw-log-badge.transaction {
+  background: #8b5cf6;
+  font-weight: 700;
+}
+
 .raw-log-content {
   margin-top: 0.25rem;
   white-space: pre-wrap;

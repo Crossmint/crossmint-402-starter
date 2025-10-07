@@ -349,6 +349,46 @@ body {
   font-size: 1.125rem;
 }
 
+.payment-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+  padding: 1.5rem;
+  background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+  border-radius: 12px;
+  border: 2px solid #3b82f6;
+}
+
+.spinner {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 3px solid #dbeafe;
+  border-top: 3px solid #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.payment-loading p {
+  margin: 0;
+  font-weight: 600;
+  color: #1e40af;
+  font-size: 1rem;
+}
+
+.payment-loading small {
+  color: #475569;
+  font-size: 0.875rem;
+  text-align: center;
+  max-width: 300px;
+}
+
 .payment-buttons {
   display: flex;
   gap: 0.75rem;
@@ -366,8 +406,13 @@ body {
   transition: background 0.2s;
 }
 
-.btn-cancel:hover {
+.btn-cancel:hover:not(:disabled) {
   background: #f8fafc;
+}
+
+.btn-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .btn-confirm {
@@ -381,8 +426,14 @@ body {
   transition: background 0.2s;
 }
 
-.btn-confirm:hover {
+.btn-confirm:hover:not(:disabled) {
   background: #2563eb;
+}
+
+.btn-confirm:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  background: #9ca3af;
 }
 
 /* Utility Classes */

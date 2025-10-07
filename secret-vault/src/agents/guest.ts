@@ -39,7 +39,7 @@ export class Guest extends Agent<Env> {
    */
   async onPaymentRequired(paymentRequirements: PaymentRequirements[]) {
     const confirmationId = crypto.randomUUID().slice(0, 8);
-    
+
     // Log 402 response received
     const req = paymentRequirements[0];
     const amountUSD = (Number(req.maxAmountRequired) / 1_000_000).toFixed(2);
@@ -86,14 +86,14 @@ export class Guest extends Agent<Env> {
     });
 
     const confirmed = await prom;
-    
+
     if (confirmed) {
       this.broadcastLog('payment', `✅ Payment confirmed by user`);
       this.broadcastLog('payment', `🔐 Signing payment with EIP-712 typed data...`);
     } else {
       this.broadcastLog('payment', `❌ Payment cancelled by user`);
     }
-    
+
     return confirmed;
   }
 
@@ -103,7 +103,7 @@ export class Guest extends Agent<Env> {
 
     // Initialize Crossmint SDK and create wallet with API key signer
     this.broadcastLog('info', `🔧 Creating Crossmint wallet with API key signer...`);
-    
+
     const crossmint = createCrossmint({
       apiKey: this.env.CROSSMINT_API_KEY
     });
@@ -192,6 +192,32 @@ export class Guest extends Agent<Env> {
           break;
         }
 
+        case "disconnect_mcp": {
+          // Disconnect from current MCP
+          console.log("🔌 Disconnecting from MCP...");
+          this.mcpConnected = false;
+          this.x402Client = undefined;
+          this.mcpConnectionId = undefined;
+          this.hostWalletAddress = undefined;
+          this.mcpUrl = undefined;
+
+          // Broadcast updated wallet info
+          const isDeployed = await checkWalletDeployment(this.wallet.address, "base-sepolia");
+          this.broadcast(JSON.stringify({
+            type: "wallet_info",
+            guestAddress: this.wallet.address,
+            hostAddress: "Not connected to MCP",
+            network: NETWORK,
+            guestWalletDeployed: isDeployed
+          }));
+
+          conn.send(JSON.stringify({
+            type: "mcp_disconnected",
+            message: "Disconnected from MCP"
+          }));
+          break;
+        }
+
         case "connect_mcp": {
           // Connect to Host MCP server
           let mcpUrl = parsed.url || "https://secret-vault.angela-temp.workers.dev/mcp";
@@ -233,6 +259,17 @@ export class Guest extends Agent<Env> {
             this.mcpConnected = false;
             this.x402Client = undefined;
             this.mcpConnectionId = undefined;
+            this.hostWalletAddress = undefined; // Clear old host address
+
+            // Broadcast updated wallet info with cleared host address
+            const isDeployed = await checkWalletDeployment(this.wallet.address, "base-sepolia");
+            this.broadcast(JSON.stringify({
+              type: "wallet_info",
+              guestAddress: this.wallet.address,
+              hostAddress: "Connecting to new MCP...",
+              network: NETWORK,
+              guestWalletDeployed: isDeployed
+            }));
           }
 
           try {
@@ -313,7 +350,7 @@ export class Guest extends Agent<Env> {
 
             const paidTools = tools.tools.filter(t => t.annotations?.paymentHint).length;
             const freeTools = tools.tools.length - paidTools;
-            
+
             this.broadcastLog('system', `✅ MCP connected! Found ${tools.tools.length} tools (${freeTools} free, ${paidTools} paid)`);
 
             conn.send(JSON.stringify({

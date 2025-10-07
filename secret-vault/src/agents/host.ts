@@ -25,6 +25,7 @@ export class Host extends McpAgent<Env, never, { urlSafeId?: string }> {
   wallet!: Wallet<any>;
   server!: ReturnType<typeof withX402>;
   userScopeId!: string; // The actual user ID (urlSafeId) for scoping secrets
+  x402Config!: X402Config; // Store the x402 config for updates
 
   async onConnect(conn: Connection, ctx: ConnectionContext) {
     // Extract and persist userScopeId from the initial request header
@@ -42,7 +43,162 @@ export class Host extends McpAgent<Env, never, { urlSafeId?: string }> {
         console.log(`✅ Updated runtime userScopeId to: ${scopeId}`);
       }
     }
+
+    // IMPORTANT: Always refresh the recipient address from KV on every connection
+    // This ensures we use the latest wallet address if it was updated
+    await this.refreshRecipientAddress();
+
     return super.onConnect(conn, ctx);
+  }
+
+  private async refreshRecipientAddress() {
+    try {
+      const userJson = await this.env.SECRETS.get(`usersByHash:${this.userScopeId}`);
+
+      if (userJson) {
+        const parsed = JSON.parse(userJson);
+        if (parsed?.walletAddress && /^0x[a-fA-F0-9]{40}$/.test(parsed.walletAddress)) {
+          const newRecipient = parsed.walletAddress as `0x${string}`;
+
+          // Check if recipient has changed
+          if (this.x402Config.recipient !== newRecipient) {
+            console.log(`🔄 Recipient address changed!`);
+            console.log(`  Old: ${this.x402Config.recipient}`);
+            console.log(`  New: ${newRecipient}`);
+
+            // Update the config
+            this.x402Config.recipient = newRecipient;
+
+            // Recreate the server with updated config
+            await this.rebuildServerWithNewRecipient();
+          } else {
+            console.log(`✅ Recipient address unchanged: ${newRecipient}`);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("❌ Error refreshing recipient address:", err);
+    }
+  }
+
+  private async rebuildServerWithNewRecipient() {
+    console.log(`🔨 Rebuilding MCP server with new recipient...`);
+
+    // Create a new base MCP server
+    const baseServer = new McpServer({ name: "Secret Vault MCP", version: "1.0.0" });
+
+    // Wrap with x402 using updated config
+    this.server = withX402(baseServer, this.x402Config);
+
+    // Re-register all tools
+    await this.registerTools();
+
+    console.log(`✅ MCP server rebuilt with new recipient: ${this.x402Config.recipient}`);
+  }
+
+  private async registerTools() {
+    const secretService = createSecretService({ kv: this.env.SECRETS });
+
+    // Free tool: storeSecret
+    this.server.tool(
+      "storeSecret",
+      "Store a secret with a payment requirement. Returns a secret ID.",
+      {
+        secret: z.string().describe("The secret data to store"),
+        amount: z.string().describe("Price in USD (e.g., '0.05')"),
+        description: z.string().describe("What this secret is for")
+      },
+      async ({ secret, amount, description }) => {
+        const stored = await secretService.storeSecret({
+          userScopeId: this.userScopeId,
+          secret,
+          amount,
+          description
+        });
+
+        console.log(`✅ Secret stored by ${this.userScopeId}: ${stored.id} for $${amount}`);
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              secretId: stored.id,
+              amount,
+              description,
+              owner: this.userScopeId,
+              message: `Secret stored! ID: ${stored.id}. Costs $${amount} to retrieve.`
+            }, null, 2)
+          }]
+        };
+      }
+    );
+
+    // Free tool: listSecrets
+    this.server.tool(
+      "listSecrets",
+      "List all stored secrets (shows metadata only, not the actual secrets)",
+      {},
+      async () => {
+        const secretList = await secretService.listSecrets({ userScopeId: this.userScopeId });
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              secrets: secretList,
+              count: secretList.length,
+              message: secretList.length > 0
+                ? `Found ${secretList.length} secret(s)`
+                : "No secrets stored yet"
+            }, null, 2)
+          }]
+        };
+      }
+    );
+
+    // Paid tool: retrieveSecret
+    this.server.paidTool(
+      "retrieveSecret",
+      "Retrieve a secret by its ID. Requires payment via x402.",
+      0.05, // USD
+      {
+        secretId: z.string().describe("The secret ID to retrieve")
+      },
+      {},
+      async ({ secretId }) => {
+        const stored = await secretService.retrieveSecret({ userScopeId: this.userScopeId, secretId });
+
+        if (!stored) {
+          return {
+            isError: true,
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                error: "Secret not found",
+                message: `Secret ${secretId} not found in ${this.userScopeId}'s storage`
+              })
+            }]
+          };
+        }
+
+        console.log(`🔓 Secret retrieved by ${this.userScopeId}: ${secretId} (retrieval #${stored.retrievalCount})`);
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              secret: stored.secret,
+              description: stored.description,
+              retrievalCount: stored.retrievalCount,
+              owner: this.userScopeId,
+              message: `Secret retrieved successfully! This is retrieval #${stored.retrievalCount}.`
+            }, null, 2)
+          }]
+        };
+      }
+    );
   }
 
   async init() {
@@ -107,134 +263,26 @@ export class Host extends McpAgent<Env, never, { urlSafeId?: string }> {
       console.log(`💰 Host wallet created and stored: ${recipient}`);
     }
 
-    // Initialize MCP server with x402 payment support (recipient = user's wallet)
-    const X402_CONFIG: X402Config = {
+    // Store x402 config for later updates
+    this.x402Config = {
       network: NETWORK,
       recipient,
       facilitator: { url: FACILITATOR_URL }
     };
 
+    // Initialize MCP server with x402 payment support
     this.server = withX402(
       new McpServer({
-        name: "SecretVault",
+        name: "Secret Vault MCP",
         version: "1.0.0"
       }),
-      X402_CONFIG
+      this.x402Config
     );
 
     console.log("✅ MCP Server created with x402 support");
 
-    // ==========================================
-    // FREE TOOLS
-    // ==========================================
-
-    // Initialize shared secret service scoped to this DO's KV
-    const secretService = createSecretService({ kv: this.env.SECRETS });
-
-    // Store a secret (free)
-    this.server.tool(
-      "storeSecret",
-      "Store a secret with a payment requirement. Returns a secret ID.",
-      {
-        secret: z.string().describe("The secret data to store"),
-        amount: z.string().describe("Price in USD (e.g., '0.05')"),
-        description: z.string().describe("What this secret is for")
-      },
-      async ({ secret, amount, description }) => {
-        const stored = await secretService.storeSecret({
-          userScopeId: this.userScopeId,
-          secret,
-          amount,
-          description
-        });
-
-        console.log(`✅ Secret stored by ${this.userScopeId}: ${stored.id} for $${amount}`);
-
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              success: true,
-              secretId: stored.id,
-              amount,
-              description,
-              owner: this.userScopeId,
-              message: `Secret stored! ID: ${stored.id}. Costs $${amount} to retrieve.`
-            }, null, 2)
-          }]
-        };
-      }
-    );
-
-    // List all secrets (free preview)
-    this.server.tool(
-      "listSecrets",
-      "List all stored secrets (shows metadata only, not the actual secrets)",
-      {},
-      async () => {
-        const secretList = await secretService.listSecrets({ userScopeId: this.userScopeId });
-
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              secrets: secretList,
-              count: secretList.length,
-              message: secretList.length > 0
-                ? `Found ${secretList.length} secret(s)`
-                : "No secrets stored yet"
-            }, null, 2)
-          }]
-        };
-      }
-    );
-
-    // ==========================================
-    // PAID TOOLS (x402 protected)
-    // ==========================================
-
-    // Retrieve a secret (PAID - requires x402 payment)
-    this.server.paidTool(
-      "retrieveSecret",
-      "Retrieve a secret by its ID. Requires payment via x402.",
-      0.05, // USD - this will be overridden by the secret's actual price
-      {
-        secretId: z.string().describe("The secret ID to retrieve")
-      },
-      {},
-      async ({ secretId }) => {
-        const stored = await secretService.retrieveSecret({ userScopeId: this.userScopeId, secretId });
-
-        if (!stored) {
-          return {
-            isError: true,
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                error: "Secret not found",
-                message: `Secret ${secretId} not found in ${this.userScopeId}'s storage`
-              })
-            }]
-          };
-        }
-
-        console.log(`🔓 Secret retrieved by ${this.userScopeId}: ${secretId} (retrieval #${stored.retrievalCount})`);
-
-        return {
-          content: [{
-            type: "text",
-            text: JSON.stringify({
-              success: true,
-              secret: stored.secret,
-              description: stored.description,
-              retrievalCount: stored.retrievalCount,
-              owner: this.userScopeId,
-              message: `Secret retrieved successfully! This is retrieval #${stored.retrievalCount}.`
-            }, null, 2)
-          }]
-        };
-      }
-    );
+    // Register all tools
+    await this.registerTools();
 
     console.log("✅ Host MCP Server initialized with tools:");
     console.log("   - storeSecret (free)");
