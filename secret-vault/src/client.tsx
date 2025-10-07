@@ -291,7 +291,7 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
         }
         addMessage({
           sender: 'agent',
-          text: 'To store a secret, visit the "My MCP" page at /?view=my-mcp or use the guest interface.'
+          text: 'To store a secret, visit the "My MCP" page at /my-mcp or use the guest interface.'
         });
         break;
 
