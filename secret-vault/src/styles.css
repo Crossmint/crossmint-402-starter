@@ -274,6 +274,11 @@ body {
   color: white;
 }
 
+.log-badge.info {
+  background: #06b6d4;
+  color: white;
+}
+
 .log-entry pre {
   white-space: pre-wrap;
   word-break: break-word;

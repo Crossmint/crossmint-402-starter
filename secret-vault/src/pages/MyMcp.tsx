@@ -102,7 +102,7 @@ function MyMcpInner() {
     }
   }, [otpHandlers.verifyOtp, currentOtp]);
 
-  const WORKER_BASE = (VITE_ENV.VITE_WORKER_BASE_URL as string) || "https://calendar-concierge.angela-temp.workers.dev";
+  const WORKER_BASE = (VITE_ENV.VITE_WORKER_BASE_URL as string) || "https://secret-vault.angela-temp.workers.dev";
 
   const createMcp = useCallback(async () => {
     const ownerEmail = user?.email || email;

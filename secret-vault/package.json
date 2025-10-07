@@ -1,12 +1,13 @@
 {
-  "name": "calendar-concierge",
+  "name": "secret-vault",
   "version": "0.0.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite dev",
+    "build": "vite build",
     "worker": "wrangler dev --port 8787",
-    "deploy": "vite build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
     "@ai-sdk/openai": "1.0.0",

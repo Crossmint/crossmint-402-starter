@@ -33,7 +33,7 @@ export function ChatHeader({ nerdMode, onToggleNerdMode, mcpConnected }: ChatHea
             fontWeight: 500,
             color: '#475569'
           }}>
-            <span>Developer Mode</span>
+            <span>nerd mode</span>
             <div style={{
               position: 'relative',
               width: '44px',

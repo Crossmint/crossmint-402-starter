@@ -64,15 +64,23 @@ function PaymentPopup({ show, requirements, confirmationId, onConfirm, onCancel 
 }
 
 interface ClientAppProps {
-  apiKey: string;
+  apiKey?: string;
 }
 
-export function ClientApp({ apiKey }: ClientAppProps) {
+export function ClientApp({ apiKey = '' }: ClientAppProps) {
   // UI State
   const [nerdMode, setNerdMode] = useState(true);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
-  const [mcpUrl, setMcpUrl] = useState("");
+  // Set default MCP URL based on environment
+  const [mcpUrl, setMcpUrl] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.location.hostname === 'localhost'
+        ? 'http://localhost:5173/mcp'
+        : `${window.location.protocol}//${window.location.hostname}/mcp`;
+    }
+    return '';
+  });
   const [showTransactions, setShowTransactions] = useState(false);
 
   // Agent State
@@ -86,12 +94,12 @@ export function ClientApp({ apiKey }: ClientAppProps) {
   const [paymentReq, setPaymentReq] = useState<PaymentRequirement | null>(null);
   const [confirmationId, setConfirmationId] = useState("");
 
-  // Always connect directly to workers.dev over secure WSS in browser
+  // Connect to the current domain (works for both local dev and production)
   const agent = useAgent({
     agent: "guest",
     name: "default",
-    host: "calendar-concierge.angela-temp.workers.dev",
-    secure: true
+    host: window.location.hostname === 'localhost' ? 'localhost:8787' : window.location.hostname,
+    secure: window.location.protocol === 'https:'
   });
 
   const addMessage = useCallback((message: Omit<ChatMessage, 'id' | 'timestamp'>) => {
@@ -325,6 +333,11 @@ export function ClientApp({ apiKey }: ClientAppProps) {
         addLog('server', JSON.stringify(data, null, 2));
 
         switch (data.type) {
+          case "log":
+            // Handle log broadcasts from the agent
+            addLog(data.logType || 'system', data.message);
+            break;
+
           case "wallet_info":
             setWalletInfo({
               guestAddress: data.guestAddress,

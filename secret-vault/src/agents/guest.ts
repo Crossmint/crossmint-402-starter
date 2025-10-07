@@ -20,17 +20,39 @@ export class Guest extends Agent<Env> {
   hostWalletAddress?: string;
 
   /**
+   * Broadcast a log message to all connected clients
+   */
+  private broadcastLog(type: 'info' | 'payment' | 'system' | 'error', message: string) {
+    console.log(`[${type.toUpperCase()}] ${message}`);
+    this.broadcast(
+      JSON.stringify({
+        type: "log",
+        logType: type,
+        message,
+        timestamp: new Date().toISOString()
+      })
+    );
+  }
+
+  /**
    * Handle payment confirmation popup
    */
   async onPaymentRequired(paymentRequirements: PaymentRequirements[]) {
     const confirmationId = crypto.randomUUID().slice(0, 8);
+    
+    // Log 402 response received
+    const req = paymentRequirements[0];
+    const amountUSD = (Number(req.maxAmountRequired) / 1_000_000).toFixed(2);
+    this.broadcastLog('payment', `🔒 402 Payment Required: $${amountUSD} USD for ${req.resource}`);
+    this.broadcastLog('payment', `💳 Pay to: ${req.payTo}`);
+    this.broadcastLog('payment', `🌐 Network: ${req.network}`);
 
     // Extract and store Host wallet address from payment requirements
     if (paymentRequirements.length > 0 && paymentRequirements[0].payTo) {
       const hostAddress = paymentRequirements[0].payTo;
       if (hostAddress !== this.hostWalletAddress) {
         this.hostWalletAddress = hostAddress;
-        console.log(`💼 Host wallet address discovered: ${hostAddress}`);
+        this.broadcastLog('info', `💼 Host wallet address discovered: ${hostAddress}`);
 
         // Check deployment status and send updated wallet info to UI
         const isDeployed = await checkWalletDeployment(this.wallet.address, "base-sepolia");
@@ -56,18 +78,32 @@ export class Guest extends Agent<Env> {
       })
     );
 
+    this.broadcastLog('payment', `⏳ Waiting for user confirmation (ID: ${confirmationId})...`);
+
     // Wait for user confirmation
     const prom = new Promise<boolean>((res) => {
       this.confirmations[confirmationId] = res;
     });
 
-    return await prom;
+    const confirmed = await prom;
+    
+    if (confirmed) {
+      this.broadcastLog('payment', `✅ Payment confirmed by user`);
+      this.broadcastLog('payment', `🔐 Signing payment with EIP-712 typed data...`);
+    } else {
+      this.broadcastLog('payment', `❌ Payment cancelled by user`);
+    }
+    
+    return confirmed;
   }
 
   async onStart() {
     console.log("👤 Guest Agent starting...");
+    this.broadcastLog('system', `👤 Guest Agent initializing...`);
 
     // Initialize Crossmint SDK and create wallet with API key signer
+    this.broadcastLog('info', `🔧 Creating Crossmint wallet with API key signer...`);
+    
     const crossmint = createCrossmint({
       apiKey: this.env.CROSSMINT_API_KEY
     });
@@ -81,11 +117,13 @@ export class Guest extends Agent<Env> {
       owner: locator
     });
 
+    this.broadcastLog('system', `✅ Guest wallet ready: ${this.wallet.address}`);
     console.log(`💰 Guest wallet created: ${this.wallet.address}`);
   }
 
   async onConnect(conn: Connection) {
     console.log("🔗 New connection established, sending wallet info");
+    this.broadcastLog('info', `🔗 WebSocket connection established`);
 
     // Send wallet info to the new connection
     if (!this.wallet) {
@@ -156,7 +194,7 @@ export class Guest extends Agent<Env> {
 
         case "connect_mcp": {
           // Connect to Host MCP server
-          let mcpUrl = parsed.url || "https://calendar-concierge.angela-temp.workers.dev/mcp";
+          let mcpUrl = parsed.url || "https://secret-vault.angela-temp.workers.dev/mcp";
           // Normalize to fully-qualified https URL if missing protocol
           if (typeof mcpUrl === "string" && !/^https?:\/\//i.test(mcpUrl)) {
             mcpUrl = `https://${mcpUrl}`;
@@ -198,8 +236,8 @@ export class Guest extends Agent<Env> {
           }
 
           try {
-            console.log(`🔌 Connecting to MCP server at ${mcpUrl}...`);
-            console.log(`📡 Using transport: auto (streamable-http → SSE fallback)`);
+            this.broadcastLog('info', `🔌 Connecting to MCP server at ${mcpUrl}...`);
+            this.broadcastLog('info', `📡 Using transport: streamable-http`);
 
             // Retry logic for demo stability
             let id: string | undefined;
@@ -207,16 +245,16 @@ export class Guest extends Agent<Env> {
 
             for (let attempt = 1; attempt <= 3; attempt++) {
               try {
-                console.log(`🔄 Connection attempt ${attempt}/3...`);
+                this.broadcastLog('info', `🔄 Connection attempt ${attempt}/3...`);
                 const result = await this.mcp.connect(mcpUrl, {
                   transport: { type: "streamable-http" }
                 });
                 id = result.id;
-                console.log(`✅ MCP connection established with ID: ${id}`);
+                this.broadcastLog('system', `✅ MCP connection established with ID: ${id}`);
                 break;
               } catch (err) {
                 lastError = err instanceof Error ? err : new Error(String(err));
-                console.warn(`⚠️  Attempt ${attempt} failed:`, lastError.message);
+                this.broadcastLog('error', `⚠️ Attempt ${attempt} failed: ${lastError.message}`);
                 if (attempt < 3) {
                   await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
                 }
@@ -255,6 +293,8 @@ export class Guest extends Agent<Env> {
               return;
             }
 
+            this.broadcastLog('info', `💰 Creating x402 payment client with wallet: ${this.wallet.address.slice(0, 10)}...`);
+
             const x402Signer = createX402Signer(this.wallet);
 
             this.x402Client = withX402Client(this.mcp.mcpConnections[id].client, {
@@ -266,8 +306,15 @@ export class Guest extends Agent<Env> {
             this.mcpConnectionId = id;
             this.mcpUrl = mcpUrl;
 
+            this.broadcastLog('info', `🔍 Discovering available MCP tools...`);
+
             // List available tools
             const tools = await this.x402Client.listTools({});
+
+            const paidTools = tools.tools.filter(t => t.annotations?.paymentHint).length;
+            const freeTools = tools.tools.length - paidTools;
+            
+            this.broadcastLog('system', `✅ MCP connected! Found ${tools.tools.length} tools (${freeTools} free, ${paidTools} paid)`);
 
             conn.send(JSON.stringify({
               type: "mcp_connected",
@@ -279,8 +326,6 @@ export class Guest extends Agent<Env> {
                 price: t.annotations?.paymentPriceUSD || null
               }))
             }));
-
-            console.log(`✅ Connected to MCP at ${mcpUrl}! Found ${tools.tools.length} tools`);
           } catch (error) {
             console.error("❌ MCP connection failed:", error);
             conn.send(JSON.stringify({
@@ -299,7 +344,8 @@ export class Guest extends Agent<Env> {
           }
 
           try {
-            console.log(`🔧 Calling tool: ${parsed.tool} with args:`, parsed.arguments);
+            this.broadcastLog('info', `🔧 Calling MCP tool: ${parsed.tool}`);
+            this.broadcastLog('info', `📦 Arguments: ${JSON.stringify(parsed.arguments || {})}`);
 
             const result = await this.x402Client.callTool(
               this.onPaymentRequired.bind(this),
@@ -309,15 +355,19 @@ export class Guest extends Agent<Env> {
               }
             );
 
+            if (result.isError) {
+              this.broadcastLog('error', `❌ Tool call failed: ${parsed.tool}`);
+            } else {
+              this.broadcastLog('system', `✅ Tool call successful: ${parsed.tool}`);
+            }
+
             conn.send(JSON.stringify({
               type: result.isError ? "tool_error" : "tool_result",
               tool: parsed.tool,
               result: result.content[0]?.text || JSON.stringify(result)
             }));
-
-            console.log(`✅ Tool result:`, result.isError ? "ERROR" : "SUCCESS");
           } catch (error) {
-            console.error("❌ Tool call failed:", error);
+            this.broadcastLog('error', `❌ Tool call failed: ${error instanceof Error ? error.message : String(error)}`);
             conn.send(JSON.stringify({
               type: "error",
               message: `Tool call failed: ${error instanceof Error ? error.message : String(error)}`
@@ -334,12 +384,13 @@ export class Guest extends Agent<Env> {
           // If payment is confirmed, check wallet deployment status
           if (confirmed && this.wallet) {
             try {
-              console.log("💳 Payment confirmed! Checking wallet deployment status...");
+              this.broadcastLog('payment', `💳 Checking wallet deployment status...`);
 
               const isDeployed = await checkWalletDeployment(this.wallet.address, "base-sepolia");
 
               if (!isDeployed) {
-                console.log("⚠️ Wallet is pre-deployed. Deploying wallet on-chain for settlement...");
+                this.broadcastLog('payment', `⚠️ Wallet is pre-deployed (ERC-6492 mode)`);
+                this.broadcastLog('payment', `🚀 Deploying wallet on-chain for settlement...`);
 
                 conn.send(JSON.stringify({
                   type: "info",
@@ -348,7 +399,8 @@ export class Guest extends Agent<Env> {
 
                 const deploymentTxHash = await deployWallet(this.wallet);
 
-                console.log(`✅ Wallet deployed successfully! Tx: ${deploymentTxHash}`);
+                this.broadcastLog('system', `✅ Wallet deployed successfully!`);
+                this.broadcastLog('system', `📝 Deployment tx: ${deploymentTxHash}`);
 
                 // Broadcast updated wallet info with deployment status
                 this.broadcast(
@@ -367,10 +419,10 @@ export class Guest extends Agent<Env> {
                   message: "Wallet deployed for settlement"
                 }));
               } else {
-                console.log("✅ Wallet already deployed, proceeding with payment");
+                this.broadcastLog('payment', `✅ Wallet already deployed, proceeding with payment signature`);
               }
             } catch (deployError) {
-              console.error("❌ Wallet deployment failed:", deployError);
+              this.broadcastLog('error', `❌ Wallet deployment failed: ${deployError instanceof Error ? deployError.message : String(deployError)}`);
 
               conn.send(JSON.stringify({
                 type: "warning",

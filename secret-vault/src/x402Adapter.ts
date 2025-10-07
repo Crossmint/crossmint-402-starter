@@ -35,10 +35,13 @@ export function createX402Signer(wallet: Wallet<any>) {
       console.log("🔐 Signing x402 payment:", {
         from: evm.address,
         to: domain?.verifyingContract,
-        primaryType
+        primaryType,
+        amount: message?.maxAmountAllowed || 'N/A',
+        asset: message?.asset || 'N/A'
       });
 
       // Sign with Crossmint wallet
+      console.log("📝 Calling Crossmint signTypedData...");
       const sig = await evm.signTypedData({
         domain,
         message,
@@ -47,12 +50,17 @@ export function createX402Signer(wallet: Wallet<any>) {
         chain: evm.chain as any
       } as any);
 
-      console.log("🔍 Raw signature from Crossmint:", {
+      console.log("✅ Signature received from Crossmint");
+      console.log("🔍 Signature details:", {
         signatureLength: sig.signature.length,
-        signatureStart: sig.signature.substring(0, 66)
+        signatureStart: sig.signature.substring(0, 66),
+        isERC6492: sig.signature.endsWith("6492649264926492649264926492649264926492649264926492649264926492")
       });
 
-      return processSignature(sig.signature as string);
+      const processed = processSignature(sig.signature as string);
+      console.log("📤 Processed signature ready for x402 facilitator");
+      
+      return processed;
     }
   };
 

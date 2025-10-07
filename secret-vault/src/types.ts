@@ -40,7 +40,7 @@ export interface ChatMessage {
 }
 
 export interface Log {
-  type: 'client' | 'server' | 'system' | 'payment' | 'result' | 'error';
+  type: 'client' | 'server' | 'system' | 'payment' | 'result' | 'error' | 'info';
   text: string;
   timestamp: Date;
 }

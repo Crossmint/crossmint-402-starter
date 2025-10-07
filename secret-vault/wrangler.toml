@@ -1,11 +1,11 @@
-name = "calendar-concierge"
+name = "secret-vault"
 main = "src/server.ts"
 compatibility_date = "2024-11-27"
 compatibility_flags = ["nodejs_compat"]
 
 [assets]
 binding = "ASSETS"
-directory = "./public"
+directory = "./dist/client"
 
 [[kv_namespaces]]
 binding = "SECRETS"

@@ -207,12 +207,6 @@ export default {
       }
     }
 
-    // Guest agent endpoint
-    if (url.pathname === "/agent") {
-      const agent = await getAgentByName(env.Guest, "default");
-      return agent.fetch(request);
-    }
-
     // API to register user's MCP mapping (authenticated via Crossmint wallet)
     if (url.pathname === "/api/users/mcp" && request.method === "POST") {
       try {

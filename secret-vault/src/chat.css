@@ -411,6 +411,10 @@
   background: #ef4444;
 }
 
+.raw-log-badge.info {
+  background: #06b6d4;
+}
+
 .raw-log-content {
   margin-top: 0.25rem;
   white-space: pre-wrap;
