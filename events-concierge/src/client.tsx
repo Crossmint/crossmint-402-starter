@@ -80,15 +80,8 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
   const [nerdMode, setNerdMode] = useState(true);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
-  // Set default MCP URL based on environment
-  const [mcpUrl, setMcpUrl] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return window.location.hostname === 'localhost'
-        ? 'http://localhost:5173/mcp'
-        : `${window.location.protocol}//${window.location.hostname}/mcp`;
-    }
-    return '';
-  });
+  // MCP URL (not prefilled - user must enter)
+  const [mcpUrl, setMcpUrl] = useState('');
   // Agent State
   const [mcpConnected, setMcpConnected] = useState(false);
   const [tools, setTools] = useState<Tool[]>([]);
@@ -214,11 +207,11 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
         if (!agent) return;
         addMessage({
           sender: 'system',
-          text: 'Listing secrets...'
+          text: 'Listing events...'
         });
         agent.send(JSON.stringify({
           type: "call_tool",
-          tool: "listSecrets",
+          tool: "getAllEvents",
           arguments: {}
         }));
         break;
@@ -226,7 +219,7 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
       case 'help':
         addMessage({
           sender: 'agent',
-          text: `I can help you with:\n\n• "connect" - Connect to the Secret Vault\n• "list secrets" - View all stored secrets\n• "store a secret" - Store a new secret\n• "retrieve secret <id>" - Retrieve a secret (requires payment)\n• "wallet status" - Check wallet information\n\nWhat would you like to do?`
+          text: `I can help you with:\n\n• "connect" - Connect to the Event RSVP platform\n• "list events" - View all available events\n• "create event" - Create a new event (host only)\n• "rsvp to event <id>" - RSVP to an event (requires payment)\n• "wallet status" - Check wallet information\n\nWhat would you like to do?`
         });
         break;
 
@@ -253,7 +246,7 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
         }
         break;
 
-      case 'retrieve':
+      case 'rsvp':
         if (!mcpConnected) {
           addMessage({
             sender: 'agent',
@@ -263,25 +256,28 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
         }
         if (!agent) return;
 
-        if (intent.extractedData?.secretId) {
+        if (intent.extractedData?.eventId) {
           addMessage({
             sender: 'system',
-            text: `Retrieving secret ${intent.extractedData.secretId}...`
+            text: `RSVPing to event ${intent.extractedData.eventId}...`
           });
           agent.send(JSON.stringify({
             type: "call_tool",
-            tool: "retrieveSecret",
-            arguments: { secretId: intent.extractedData.secretId }
+            tool: "rsvpToEvent",
+            arguments: {
+              eventId: intent.extractedData.eventId,
+              walletAddress: walletInfo?.guestAddress || ""
+            }
           }));
         } else {
           addMessage({
             sender: 'agent',
-            text: 'Please provide a secret ID. For example: "retrieve secret <id>"'
+            text: 'Please provide an event ID. For example: "rsvp to event <id>"'
           });
         }
         break;
 
-      case 'store':
+      case 'create':
         if (!mcpConnected) {
           addMessage({
             sender: 'agent',
@@ -291,7 +287,7 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
         }
         addMessage({
           sender: 'agent',
-          text: 'To store a secret, visit the "My MCP" page at /my-mcp or use the guest interface.'
+          text: 'To create an event, visit the "My MCP" page at /?view=my-mcp or use the host interface.'
         });
         break;
 
@@ -392,7 +388,7 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
             if (messages.length === 0) {
               addMessage({
                 sender: 'agent',
-                text: 'Welcome to Secret Vault MCP!\n\nI\'m your personal assistant for secure, pay-per-use secret storage powered by Crossmint smart wallets.',
+                text: 'Welcome to Event RSVP MCP!\n\nI\'m your personal assistant for browsing events and making paid RSVPs powered by Crossmint smart wallets.',
                 inlineComponent: {
                   type: 'wallet-card',
                   data: {
@@ -405,9 +401,9 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
               });
               addMessage({
                 sender: 'agent',
-                text: 'Let\'s get started! Say "connect" to connect to the vault.',
+                text: 'Let\'s get started! Say "connect" to browse events.',
                 actions: [
-                  { label: 'Connect to Vault', action: 'connect', variant: 'primary' }
+                  { label: 'Connect to Events', action: 'connect', variant: 'primary' }
                 ]
               });
             }
@@ -430,7 +426,7 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
             });
             addMessage({
               sender: 'agent',
-              text: 'Try saying "list secrets" or "store a secret"'
+              text: 'Try saying "list events" to see available events'
             });
             break;
 
@@ -445,10 +441,58 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
             break;
 
           case "tool_result":
-            addMessage({
-              sender: 'agent',
-              text: `Tool result:\n\n${data.result}`
-            });
+            // Parse and format tool results
+            try {
+              const resultData = JSON.parse(data.result);
+
+              // Handle getAllEvents result
+              if (resultData.events && Array.isArray(resultData.events)) {
+                if (resultData.events.length === 0) {
+                  addMessage({
+                    sender: 'agent',
+                    text: 'No events found. The host hasn\'t created any events yet.'
+                  });
+                } else {
+                  addMessage({
+                    sender: 'agent',
+                    text: `Found ${resultData.events.length} event${resultData.events.length !== 1 ? 's' : ''}:`,
+                    inlineComponent: {
+                      type: 'events-list',
+                      data: { events: resultData.events }
+                    }
+                  });
+                }
+              }
+              // Handle RSVP success
+              else if (resultData.success && resultData.eventTitle) {
+                addMessage({
+                  sender: 'agent',
+                  text: `✅ ${resultData.message}`,
+                  inlineComponent: {
+                    type: 'rsvp-confirmation',
+                    data: {
+                      eventTitle: resultData.eventTitle,
+                      eventId: resultData.eventId,
+                      rsvpCount: resultData.rsvpCount
+                    }
+                  }
+                });
+              }
+              // Generic success/result
+              else {
+                addMessage({
+                  sender: 'agent',
+                  text: resultData.message || JSON.stringify(resultData, null, 2)
+                });
+              }
+            } catch (e) {
+              // If not JSON, display as plain text
+              addMessage({
+                sender: 'agent',
+                text: data.result
+              });
+            }
+
             // Track successful payment transaction
             if (paymentReq) {
               addTransaction({
@@ -466,10 +510,19 @@ export function ClientApp({ apiKey = '' }: ClientAppProps) {
             break;
 
           case "tool_error":
-            addMessage({
-              sender: 'agent',
-              text: `Error:\n\n${data.result}`
-            });
+            // Parse and format errors
+            try {
+              const errorData = JSON.parse(data.result);
+              addMessage({
+                sender: 'agent',
+                text: `❌ ${errorData.message || errorData.error || 'An error occurred'}`
+              });
+            } catch (e) {
+              addMessage({
+                sender: 'agent',
+                text: `❌ Error: ${data.result}`
+              });
+            }
             // Payment failed - reset loading state
             setPaymentLoading(false);
             setShowPayment(false);

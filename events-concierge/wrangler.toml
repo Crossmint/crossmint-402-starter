@@ -1,4 +1,4 @@
-name = "secret-vault"
+name = "events-concierge"
 main = "src/server.ts"
 compatibility_date = "2024-11-27"
 compatibility_flags = ["nodejs_compat"]

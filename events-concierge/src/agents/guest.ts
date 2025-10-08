@@ -220,7 +220,7 @@ export class Guest extends Agent<Env> {
 
         case "connect_mcp": {
           // Connect to Host MCP server
-          let mcpUrl = parsed.url || "https://secret-vault.angela-temp.workers.dev/mcp";
+          let mcpUrl = parsed.url || "https://events-concierge.angela-temp.workers.dev/mcp";
           // Normalize to fully-qualified https URL if missing protocol
           if (typeof mcpUrl === "string" && !/^https?:\/\//i.test(mcpUrl)) {
             mcpUrl = `https://${mcpUrl}`;

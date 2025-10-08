@@ -27,7 +27,7 @@ export interface ChatMessage {
 
   // Optional inline components
   inlineComponent?: {
-    type: 'wallet-card' | 'tools-list' | 'secret-result' | 'tx-link';
+    type: 'wallet-card' | 'tools-list' | 'events-list' | 'rsvp-confirmation' | 'tx-link';
     data: any;
   };
 
@@ -71,6 +71,24 @@ export interface Transaction {
   resource?: string;
   txHash?: string;
   status: 'success' | 'failed' | 'pending';
+}
+
+// Event types
+export interface Event {
+  id: string;
+  title: string;
+  description: string;
+  date: string; // ISO string
+  capacity: number;
+  price: string;
+  rsvpCount: number;
+  createdAt: string;
+}
+
+export interface RSVP {
+  eventId: string;
+  walletAddress: string;
+  timestamp: string;
 }
 
 // Authentication & Wallet Types

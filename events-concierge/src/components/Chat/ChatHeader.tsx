@@ -10,7 +10,7 @@ export function ChatHeader({ nerdMode, onToggleNerdMode, mcpConnected }: ChatHea
   return (
     <div className="chat-header">
       <div className="chat-header-top">
-        <h1>Secret Vault MCP</h1>
+        <h1>Event RSVP MCP</h1>
         <div className="chat-header-actions">
           <div style={{
             display: 'flex',
@@ -71,7 +71,7 @@ export function ChatHeader({ nerdMode, onToggleNerdMode, mcpConnected }: ChatHea
         </div>
       </div>
       <p className="subtitle">
-        Pay-per-use secret storage powered by Crossmint smart wallets and x402 protocol
+        Paid event RSVP system powered by Crossmint smart wallets and x402 protocol
       </p>
     </div>
   );

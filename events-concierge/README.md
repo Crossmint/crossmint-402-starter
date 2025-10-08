@@ -1,8 +1,8 @@
-# Secret Vault MCP
+# Event RSVP MCP
 
 **A reference implementation for autonomous agent-to-agent payments using Crossmint smart wallets and the x402 protocol.**
 
-This demo shows how AI agents can autonomously handle paid API calls without user intervention: no private keys, no manual approvals, just HTTP and smart contracts doing their thing.
+This demo shows how AI agents can autonomously handle paid event RSVPs without user intervention: no private keys, no manual approvals, just HTTP and smart contracts doing their thing.
 
 ## Your Use-Case
 
@@ -33,13 +33,13 @@ Visit `http://localhost:5173` and you'll see a chat interface with two agents re
 
 ### Your First x402 Payment
 
-1. Click "Connect to Vault" in the chat
-2. Say "list secrets" to see what's available
-3. Go to `/?view=my-mcp` to store your first secret
+1. Click "Connect to Events" in the chat
+2. Say "list events" to see what's available
+3. Go to `/?view=my-mcp` to create your first event
 4. Get testnet USDC from [Circle Faucet](https://faucet.circle.com/) for the guest wallet
-5. Say "retrieve secret <your-id>" and watch the magic happen
+5. Say "rsvp to event <event-id>" and watch the magic happen
 
-The Guest agent will automatically sign the payment, submit it on-chain, and retrieve your secret. You'll see the transaction hash, settlement confirmation, and the secret—all without touching MetaMask or managing keys.
+The Guest agent will automatically sign the payment, submit it on-chain, and RSVP to the event. You'll see the transaction hash, settlement confirmation, and the RSVP confirmation—all without touching MetaMask or managing keys.
 
 ---
 
@@ -77,12 +77,12 @@ Host Agent (Durable Object, per-user)
   • Exposes MCP tools
   • Returns 402 for paid tools
   • Verifies payments via x402 facilitator
-  • Stores secrets in KV
+  • Stores events in KV
     ↓
 Cloudflare KV (Persistent Storage)
   • User mappings
-  • Secrets scoped by user
-  • Retrieval counters
+  • Events scoped by user
+  • RSVP counters and revenue tracking
 
     [External Services]
     • Crossmint API → Wallet creation & signing
@@ -162,11 +162,11 @@ All managed automatically via KV mappings and lazy DO initialization.
 
 - **`src/client.tsx`** - Chat interface with payment popups
 - **`src/components/NerdMode/NerdPanel.tsx`** - Developer tools panel with logs
-- **`src/pages/MyMcp.tsx`** - User registration & secret storage UI
+- **`src/pages/MyMcp.tsx`** - User registration, event creation & earnings dashboard UI
 
 ### Shared Logic
 
-- **`src/shared/secretService.ts`** - KV-backed CRUD for secrets
+- **`src/shared/eventService.ts`** - KV-backed CRUD for events and RSVPs
 - **`src/constants.ts`** - Network config, USDC address, facilitator URL
 
 ---
@@ -179,7 +179,7 @@ This is a demo. Here's how to adapt it for real use cases:
 
 1. **Clone `host.ts`** and replace the tools:
    ```typescript
-   // Instead of secrets, charge for anything
+   // Instead of events, charge for anything
    this.server.paidTool("generateImage", "...", 0.10, {
      prompt: z.string()
    }, {}, async ({ prompt }) => {
@@ -241,6 +241,7 @@ See `DEPLOYMENT.md` for custom domains, CI/CD, monitoring, and more.
 - ✅ Autonomous agent payment flows
 - ✅ Per-user isolation and state management
 - ✅ WebSocket communication for real-time updates
+- ✅ Revenue tracking and analytics dashboard
 
 **Most AI agent demos** hide the interesting bits. This one exposes:
 - ✅ Developer Mode with raw logs

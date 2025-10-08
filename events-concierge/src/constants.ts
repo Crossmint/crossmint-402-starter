@@ -13,8 +13,8 @@ export const NETWORK = "base-sepolia";
 export const CHAIN_ID = 84532;
 
 // Wallet locators for consistent agent identities
-export const HOST_WALLET_LOCATOR = "userId:secret-host-agent:evm:smart";
-export const GUEST_WALLET_LOCATOR = "userId:crossmint-pay-agent-1:evm:smart";
+export const HOST_WALLET_LOCATOR = "userId:event-host-agent:evm:smart";
+export const GUEST_WALLET_LOCATOR = "userId:event-guest-agent:evm:smart";
 
 // Helper to convert USD string to atomic units (USDC has 6 decimals)
 export function usdToAtomicUnits(usdAmount: string): string {

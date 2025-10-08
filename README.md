@@ -5,6 +5,6 @@
 3. [`hello-eoa-a2a`](./hello-eoa-a2a/): Minimal merchant/client using A2A JS SDK with EIP-3009 authorization signing and on-chain settlement
 4. [`ping`](./ping/): Express TypeScript server with x402 paywall requiring USDC payment to access `/ping` endpoint
 5. [`ping-crossmint`](./ping-crossmint/): React + Express demo showing Crossmint smart wallet integration with x402 payment protocol and API key/Email OTP signers
-6. [`secret-vault`](./secret-vault/): MCP-based autonomous agent payment demo using Cloudflare Durable Objects, Crossmint wallets, and x402 for paid API access
+6. [`events-concierge`](./events-concierge/): MCP-based autonomous agent payment demo using Cloudflare Durable Objects, Crossmint wallets, and x402 for paid API access
 7. [`send-tweet`](./send-tweet/): A2A agent that posts tweets via Twitter API v2 after verifying USDC payment using direct-transfer scheme
 8. [`weather`](./weather/): Express TypeScript server with x402 paywall requiring USDC payment to access `/weather?city=CITY` endpoint

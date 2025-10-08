@@ -1,10 +1,10 @@
 // Simple intent detection for conversational UI
 
 export interface Intent {
-  type: 'connect' | 'list' | 'store' | 'retrieve' | 'help' | 'status' | 'unknown';
+  type: 'connect' | 'list' | 'create' | 'rsvp' | 'help' | 'status' | 'unknown';
   confidence: number;
   extractedData?: {
-    secretId?: string;
+    eventId?: string;
     amount?: string;
   };
 }
@@ -17,28 +17,28 @@ export function detectIntent(message: string): Intent {
     return { type: 'connect', confidence: 1.0 };
   }
 
-  // List secrets intent
-  if (/(list|show|view|get|display).*(secret|all)/.test(lowerMessage) || lowerMessage === 'list') {
+  // List events intent
+  if (/(list|show|view|get|display).*(event|all)/.test(lowerMessage) || lowerMessage === 'list' || lowerMessage === 'list events') {
     return { type: 'list', confidence: 0.9 };
   }
 
-  // Store secret intent
-  if (/(store|save|add|create).*(secret|key)/.test(lowerMessage)) {
-    return { type: 'store', confidence: 0.9 };
+  // Create event intent
+  if (/(create|add|make|new).*(event)/.test(lowerMessage)) {
+    return { type: 'create', confidence: 0.9 };
   }
 
-  // Retrieve secret intent
-  if (/(retrieve|get|fetch|show).*(secret)/.test(lowerMessage)) {
-    // Try to extract secret ID
-    const secretIdMatch = lowerMessage.match(/([a-f0-9-]{36})/);
-    if (secretIdMatch) {
+  // RSVP to event intent
+  if (/(rsvp|register|join|attend).*(event|to)/.test(lowerMessage)) {
+    // Try to extract event ID
+    const eventIdMatch = lowerMessage.match(/([a-f0-9-]{36})/);
+    if (eventIdMatch) {
       return {
-        type: 'retrieve',
+        type: 'rsvp',
         confidence: 0.95,
-        extractedData: { secretId: secretIdMatch[1] }
+        extractedData: { eventId: eventIdMatch[1] }
       };
     }
-    return { type: 'retrieve', confidence: 0.8 };
+    return { type: 'rsvp', confidence: 0.8 };
   }
 
   // Help intent
@@ -54,13 +54,13 @@ export function detectIntent(message: string): Intent {
   return { type: 'unknown', confidence: 0.0 };
 }
 
-export function getSuggestedActions(mcpConnected: boolean, hasSecrets: boolean): string[] {
+export function getSuggestedActions(mcpConnected: boolean, hasEvents: boolean): string[] {
   if (!mcpConnected) {
     return ['connect', 'help'];
   }
 
-  if (hasSecrets) {
-    return ['list secrets', 'wallet status'];
+  if (hasEvents) {
+    return ['list events', 'wallet status'];
   }
 
   return ['wallet status', 'help'];

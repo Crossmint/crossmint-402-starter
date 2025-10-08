@@ -55,9 +55,9 @@ export default {
     if (url.pathname === "/mcp/info") {
       const { NETWORK, FACILITATOR_URL } = await import("./constants");
       return new Response(JSON.stringify({
-        name: "SecretVault",
+        name: "EventRSVP",
         version: "1.0.0",
-        description: "Paid secret storage with x402 payments",
+        description: "Paid event RSVP with x402 payments",
         transport: "streamable-http",
         endpoints: {
           shared: `${url.origin}/mcp`,
@@ -66,9 +66,9 @@ export default {
           register: `${url.origin}/api/users/mcp`
         },
         tools: [
-          { name: "storeSecret", description: "Store a secret with payment requirement", paid: false },
-          { name: "listSecrets", description: "List all stored secrets (metadata only)", paid: false },
-          { name: "retrieveSecret", description: "Retrieve a secret by ID (requires payment)", paid: true, price: "$0.05" }
+          { name: "createEvent", description: "Create a new event", paid: false },
+          { name: "getAllEvents", description: "List all events with RSVP counts", paid: false },
+          { name: "rsvpToEvent", description: "RSVP to an event (requires payment)", paid: true, price: "$0.05" }
         ],
         payment: {
           protocol: "x402",
@@ -320,26 +320,40 @@ export default {
       }
     }
 
-    // API to store a secret (authenticated - only MCP owner)
-    if (url.pathname === "/api/users/secrets" && request.method === "POST") {
+    // API to create an event (authenticated - only MCP owner)
+    if (url.pathname === "/api/users/events" && request.method === "POST") {
       try {
-        const body = (await request.json().catch(() => ({} as any))) as Partial<{ userId: string; walletAddress: string; secretName: string; secretValue: string }>;
-        const { userId, walletAddress, secretName, secretValue } = body;
+        const body = (await request.json().catch(() => ({} as any))) as Partial<{
+          userId: string;
+          walletAddress: string;
+          title: string;
+          description: string;
+          date: number;
+          capacity: number;
+          price: string;
+        }>;
+        const { userId, walletAddress, title, description, date, capacity, price } = body;
 
         // Validate input
         if (
           !userId ||
           !walletAddress ||
-          !secretName ||
-          !secretValue ||
+          !title ||
+          !description ||
+          !date ||
+          capacity === undefined ||
+          !price ||
           typeof userId !== "string" ||
           typeof walletAddress !== "string" ||
-          typeof secretName !== "string" ||
-          typeof secretValue !== "string"
+          typeof title !== "string" ||
+          typeof description !== "string" ||
+          typeof date !== "number" ||
+          typeof capacity !== "number" ||
+          typeof price !== "string"
         ) {
           return new Response(
             JSON.stringify({
-              error: "Invalid body. Required: userId (string), walletAddress (string), secretName (string), secretValue (string)"
+              error: "Invalid body. Required: userId, walletAddress, title, description, date (timestamp), capacity (number), price (USD string)"
             }),
             { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
           );
@@ -369,34 +383,116 @@ export default {
         const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
         const urlSafeId = hashHex.substring(0, 16);
 
-        // Store secret directly using the urlSafeId as the key prefix (same as Host DO does)
-        const secretId = crypto.randomUUID();
+        // Store event directly using the urlSafeId as the key prefix (same as Host DO does)
+        const eventId = crypto.randomUUID();
         const stored = {
-          id: secretId,
-          secret: secretValue,
-          amount: "0.05", // Default price
-          description: secretName,
+          id: eventId,
+          title,
+          description,
+          date,
+          capacity,
+          price,
           createdAt: Date.now(),
-          retrievalCount: 0
+          rsvpCount: 0
         };
 
-        // Scope secret to the user's DO instance using urlSafeId (matches Host.name)
-        const secretKey = `${urlSafeId}:secrets:${secretId}`;
-        await env.SECRETS.put(secretKey, JSON.stringify(stored));
+        // Scope event to the user's DO instance using urlSafeId (matches Host.name)
+        const eventKey = `${urlSafeId}:events:${eventId}`;
+        await env.SECRETS.put(eventKey, JSON.stringify(stored));
 
-        console.log(`🔐 Secret stored for user ${userId}: ${secretName} (${secretId})`);
+        console.log(`🎉 Event created for user ${userId}: ${title} (${eventId})`);
         return new Response(JSON.stringify({
           success: true,
-          secretId,
-          secretName,
-          message: "Secret stored successfully"
+          eventId,
+          title,
+          message: "Event created successfully"
         }), { headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
 
       } catch (error) {
-        console.error("Store secret error:", error);
+        console.error("Create event error:", error);
         return new Response(
           JSON.stringify({
-            error: "Failed to store secret",
+            error: "Failed to create event",
+            message: error instanceof Error ? error.message : String(error)
+          }),
+          { status: 500, headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
+        );
+      }
+    }
+
+    // API to get all events for a user (authenticated - only MCP owner)
+    if (url.pathname === "/api/users/events" && request.method === "GET") {
+      try {
+        const userId = url.searchParams.get("userId");
+        const walletAddress = url.searchParams.get("walletAddress");
+
+        if (!userId || !walletAddress) {
+          return new Response(
+            JSON.stringify({ error: "Missing userId or walletAddress query params" }),
+            { status: 400, headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
+          );
+        }
+
+        // Verify user exists and wallet matches (authentication)
+        const user = await env.SECRETS.get(`users:${userId}`, { type: "json" }) as { walletAddress?: string, urlSafeId?: string } | null;
+        if (!user) {
+          return new Response(
+            JSON.stringify({ error: "User not found" }),
+            { status: 404, headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
+          );
+        }
+
+        if (user.walletAddress !== walletAddress) {
+          return new Response(
+            JSON.stringify({ error: "Unauthorized" }),
+            { status: 403, headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
+          );
+        }
+
+        // Get urlSafeId
+        const encoder = new TextEncoder();
+        const data = encoder.encode(userId);
+        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        const urlSafeId = hashHex.substring(0, 16);
+
+        // List all events for this user
+        const prefix = `${urlSafeId}:events:`;
+        const keys = await env.SECRETS.list({ prefix });
+        const events = await Promise.all(
+          keys.keys.map(async (k) => {
+            const eventData = await env.SECRETS.get(k.name);
+            if (!eventData) return null;
+            const event = JSON.parse(eventData);
+            return {
+              id: event.id,
+              title: event.title,
+              description: event.description,
+              date: new Date(event.date).toISOString(),
+              capacity: event.capacity,
+              price: event.price,
+              rsvpCount: event.rsvpCount,
+              createdAt: new Date(event.createdAt).toISOString(),
+              revenue: (parseFloat(event.price) * event.rsvpCount).toFixed(2)
+            };
+          })
+        );
+
+        const filteredEvents = events.filter(Boolean);
+        const totalRevenue = filteredEvents.reduce((sum, e: any) => sum + parseFloat(e.revenue), 0).toFixed(2);
+
+        return new Response(JSON.stringify({
+          success: true,
+          events: filteredEvents,
+          totalRevenue
+        }), { headers: { "Content-Type": "application/json", ...CORS_HEADERS } });
+
+      } catch (error) {
+        console.error("Get events error:", error);
+        return new Response(
+          JSON.stringify({
+            error: "Failed to get events",
             message: error instanceof Error ? error.message : String(error)
           }),
           { status: 500, headers: { "Content-Type": "application/json", ...CORS_HEADERS } }

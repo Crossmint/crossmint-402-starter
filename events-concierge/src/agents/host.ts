@@ -6,25 +6,16 @@ import { z } from "zod";
 import type { Env } from "../server";
 import { NETWORK, USDC_BASE_SEPOLIA, FACILITATOR_URL } from "../constants";
 import { CrossmintWallets, createCrossmint, type Wallet } from "@crossmint/wallets-sdk";
-import { createSecretService } from "../shared/secretService";
-
-interface StoredSecret {
-  id: string;
-  secret: string;
-  amount: string;
-  description: string;
-  createdAt: number;
-  retrievalCount: number;
-}
+import { createEventService } from "../shared/eventService";
 
 /**
- * Host MCP Server - Provides paid secret storage and retrieval
+ * Host MCP Server - Provides event creation and paid RSVP functionality
  * Uses Crossmint smart wallet to receive payments
  */
 export class Host extends McpAgent<Env, never, { urlSafeId?: string }> {
   wallet!: Wallet<any>;
   server!: ReturnType<typeof withX402>;
-  userScopeId!: string; // The actual user ID (urlSafeId) for scoping secrets
+  userScopeId!: string; // The actual user ID (urlSafeId) for scoping events
   x402Config!: X402Config; // Store the x402 config for updates
 
   async onConnect(conn: Connection, ctx: ConnectionContext) {
@@ -97,103 +88,113 @@ export class Host extends McpAgent<Env, never, { urlSafeId?: string }> {
   }
 
   private async registerTools() {
-    const secretService = createSecretService({ kv: this.env.SECRETS });
+    const eventService = createEventService({ kv: this.env.SECRETS });
 
-    // Free tool: storeSecret
+    // Free tool: createEvent (authenticated owner only - called via API, not directly)
     this.server.tool(
-      "storeSecret",
-      "Store a secret with a payment requirement. Returns a secret ID.",
+      "createEvent",
+      "Create a new event. Returns event ID.",
       {
-        secret: z.string().describe("The secret data to store"),
-        amount: z.string().describe("Price in USD (e.g., '0.05')"),
-        description: z.string().describe("What this secret is for")
+        title: z.string().describe("Event title"),
+        description: z.string().describe("Event description"),
+        date: z.number().describe("Event date (Unix timestamp)"),
+        capacity: z.number().describe("Max RSVPs (0 = unlimited)"),
+        price: z.string().describe("Price in USD (e.g., '0.05')")
       },
-      async ({ secret, amount, description }) => {
-        const stored = await secretService.storeSecret({
+      async ({ title, description, date, capacity, price }) => {
+        const event = await eventService.createEvent({
           userScopeId: this.userScopeId,
-          secret,
-          amount,
-          description
+          title,
+          description,
+          date,
+          capacity,
+          price
         });
 
-        console.log(`✅ Secret stored by ${this.userScopeId}: ${stored.id} for $${amount}`);
+        console.log(`✅ Event created by ${this.userScopeId}: ${event.id} for $${price}`);
 
         return {
           content: [{
             type: "text",
             text: JSON.stringify({
               success: true,
-              secretId: stored.id,
-              amount,
-              description,
+              eventId: event.id,
+              title: event.title,
+              date: new Date(event.date).toISOString(),
+              price: event.price,
+              capacity: event.capacity,
               owner: this.userScopeId,
-              message: `Secret stored! ID: ${stored.id}. Costs $${amount} to retrieve.`
+              message: `Event created! ID: ${event.id}. RSVP costs $${price}.`
             }, null, 2)
           }]
         };
       }
     );
 
-    // Free tool: listSecrets
+    // Free tool: getAllEvents
     this.server.tool(
-      "listSecrets",
-      "List all stored secrets (shows metadata only, not the actual secrets)",
+      "getAllEvents",
+      "List all events (shows event details and RSVP counts)",
       {},
       async () => {
-        const secretList = await secretService.listSecrets({ userScopeId: this.userScopeId });
+        const eventList = await eventService.listEvents({ userScopeId: this.userScopeId });
 
         return {
           content: [{
             type: "text",
             text: JSON.stringify({
-              secrets: secretList,
-              count: secretList.length,
-              message: secretList.length > 0
-                ? `Found ${secretList.length} secret(s)`
-                : "No secrets stored yet"
+              events: eventList,
+              count: eventList.length,
+              message: eventList.length > 0
+                ? `Found ${eventList.length} event(s)`
+                : "No events created yet"
             }, null, 2)
           }]
         };
       }
     );
 
-    // Paid tool: retrieveSecret
+    // Paid tool: rsvpToEvent
     this.server.paidTool(
-      "retrieveSecret",
-      "Retrieve a secret by its ID. Requires payment via x402.",
-      0.05, // USD
+      "rsvpToEvent",
+      "RSVP to an event. Requires payment via x402.",
+      0.05, // USD (will be overridden by event price dynamically)
       {
-        secretId: z.string().describe("The secret ID to retrieve")
+        eventId: z.string().describe("The event ID to RSVP to"),
+        walletAddress: z.string().describe("Guest wallet address")
       },
       {},
-      async ({ secretId }) => {
-        const stored = await secretService.retrieveSecret({ userScopeId: this.userScopeId, secretId });
+      async ({ eventId, walletAddress }) => {
+        const result = await eventService.rsvpToEvent({
+          userScopeId: this.userScopeId,
+          eventId,
+          walletAddress
+        });
 
-        if (!stored) {
+        if (!result.success) {
           return {
             isError: true,
             content: [{
               type: "text",
               text: JSON.stringify({
-                error: "Secret not found",
-                message: `Secret ${secretId} not found in ${this.userScopeId}'s storage`
+                error: result.error,
+                message: result.error
               })
             }]
           };
         }
 
-        console.log(`🔓 Secret retrieved by ${this.userScopeId}: ${secretId} (retrieval #${stored.retrievalCount})`);
+        console.log(`🎉 RSVP created for event ${eventId} by ${walletAddress}`);
 
         return {
           content: [{
             type: "text",
             text: JSON.stringify({
               success: true,
-              secret: stored.secret,
-              description: stored.description,
-              retrievalCount: stored.retrievalCount,
-              owner: this.userScopeId,
-              message: `Secret retrieved successfully! This is retrieval #${stored.retrievalCount}.`
+              eventId: eventId,
+              eventTitle: result.event?.title,
+              rsvpCount: result.event?.rsvpCount,
+              message: `RSVP successful! You're registered for "${result.event?.title}".`
             }, null, 2)
           }]
         };
@@ -285,9 +286,9 @@ export class Host extends McpAgent<Env, never, { urlSafeId?: string }> {
     await this.registerTools();
 
     console.log("✅ Host MCP Server initialized with tools:");
-    console.log("   - storeSecret (free)");
-    console.log("   - listSecrets (free)");
-    console.log("   - retrieveSecret (paid: $0.05)");
+    console.log("   - createEvent (free)");
+    console.log("   - getAllEvents (free)");
+    console.log("   - rsvpToEvent (paid: $0.05)");
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -302,40 +303,48 @@ export class Host extends McpAgent<Env, never, { urlSafeId?: string }> {
       await this.ctx.storage.put("userScopeId", scopeId);
     }
 
-    // Internal endpoint for authenticated secret storage
-    if (url.pathname === "/store-secret" && request.method === "POST") {
+    // Internal endpoint for authenticated event creation
+    if (url.pathname === "/store-event" && request.method === "POST") {
       try {
-        const body = await request.json() as { secretName: string, secretValue: string };
-        const { secretName, secretValue } = body;
+        const body = await request.json() as {
+          title: string,
+          description: string,
+          date: number,
+          capacity: number,
+          price: string
+        };
+        const { title, description, date, capacity, price } = body;
 
-        if (!secretName || !secretValue) {
+        if (!title || !description || !date || capacity === undefined || !price) {
           return Response.json(
-            { error: "Missing secretName or secretValue" },
+            { error: "Missing required fields: title, description, date, capacity, price" },
             { status: 400 }
           );
         }
 
-        // Store secret using the shared service
-        const stored = await createSecretService({ kv: this.env.SECRETS }).storeSecret({
+        // Store event using the shared service
+        const stored = await createEventService({ kv: this.env.SECRETS }).createEvent({
           userScopeId: this.userScopeId,
-          secret: secretValue,
-          amount: "0.05",
-          description: secretName
+          title,
+          description,
+          date,
+          capacity,
+          price
         });
 
-        console.log(`🔐 Secret stored via API by ${this.userScopeId}: ${secretName} (${stored.id})`);
+        console.log(`🎉 Event created via API by ${this.userScopeId}: ${title} (${stored.id})`);
 
         return Response.json({
           success: true,
-          secretId: stored.id,
-          secretName,
-          message: "Secret stored successfully"
+          eventId: stored.id,
+          title,
+          message: "Event created successfully"
         });
 
       } catch (error) {
-        console.error("Error storing secret:", error);
+        console.error("Error creating event:", error);
         return Response.json(
-          { error: "Failed to store secret", message: error instanceof Error ? error.message : String(error) },
+          { error: "Failed to create event", message: error instanceof Error ? error.message : String(error) },
           { status: 500 }
         );
       }

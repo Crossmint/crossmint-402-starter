@@ -78,7 +78,7 @@ export function NerdPanel({
               </label>
               <input
                 type="text"
-                placeholder="http://localhost:5173/mcp"
+                placeholder="Paste your MCP URL from /?view=my-mcp"
                 value={mcpUrl}
                 onChange={(e) => onMcpUrlChange(e.target.value)}
                 disabled={mcpConnected}
@@ -98,7 +98,7 @@ export function NerdPanel({
                 color: '#64748b',
                 marginTop: '0.375rem'
               }}>
-                {mcpConnected ? 'Status: Connected' : 'Enter MCP server URL to connect'}
+                {mcpConnected ? 'Status: Connected' : 'Get your personal MCP URL from the My MCP page'}
               </div>
             </div>
 
