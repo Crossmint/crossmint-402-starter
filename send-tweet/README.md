@@ -1,6 +1,6 @@
-## A2A x402 Tweet Agent (direct-transfer + Crossmint)
+## x402 Tweet Agent (Crossmint Wallets)
 
-A2A agent that sends tweets on X/Twitter for payment using the x402 payments extension and the `direct-transfer` scheme. The client uses Crossmint Wallets to pay USDC via an on-chain ERC‑20 transfer; the server verifies the transfer on-chain and posts the tweet via Twitter API v2 (optional image supported).
+A tweet agent that sends tweets on X/Twitter for payment using the x402 payment protocol. The client uses Crossmint smart wallets to sign payment authorizations (EIP-712), and the server uses x402 middleware to verify signatures. Settlement is handled by an external facilitator. Supports optional image attachments.
 
 <div align="center">
 
@@ -14,102 +14,119 @@ Watch the video walkthrough of this codebase [here](https://youtu.be/NlAtssVK5Rg
 
 ### What it does
 
-- Server (tweet agent):
-  - Advertises the x402 extension with `direct-transfer` scheme
-  - Requires tweet text (will error if not provided)
-  - Accepts optional image URL for tweet attachment
-  - Verifies ERC‑20 transfer by transaction receipt and Transfer event
-  - Posts tweet (with optional image) via Twitter API v2 after successful payment
-- Client (`sendvia` React app):
-  - Uses Crossmint Wallets for the user (email) on the selected EVM chain
-  - Fetches payment requirements and executes ERC‑20 `transfer(payTo, amount)`
-  - Submits transaction hash via x402 `X-PAYMENT` payload
-  - Displays balances (user and merchant) and logs
+**Server** (Express + x402-express):
+- Protected `/tweet` endpoint requiring payment ($1 USDC by default)
+- Uses x402 middleware to verify EIP-712 payment signatures
+- Posts tweet (with optional image) via Twitter API v2 after payment verification
+- Validates tweet text (280 character limit)
+- External facilitator handles on-chain settlement
 
-### Sequence Flow
+**Client** (Next.js + x402-axios):
+- Creates Crossmint smart wallet for user (via email)
+- Wallet deployment check and optional on-chain deployment
+- Uses x402-axios interceptor to handle 402 payment flows automatically
+- Signs payment authorizations with Crossmint wallet (ERC-6492/EIP-1271)
+- Includes localStorage persistence for configuration
+- Comprehensive input validation and accessibility features
+
+### Payment Flow
 
 ```mermaid
 sequenceDiagram
-    participant U as You
-    participant C as React Client (sendvia)
-    participant S as Tweet Agent Server
-    participant X as Crossmint Wallet
-    participant E as EVM (Base or Base Sepolia)
-    participant T as Twitter API v2
+    participant U as User
+    participant C as Client (sendvia)
+    participant S as Server (x402)
+    participant W as Crossmint Wallet
+    participant F as x402 Facilitator
+    participant T as Twitter API
 
-    U->>C: Open app
-    C->>S: Fetch AgentCard (x402 extension)
-    C->>S: Send initial message
-    S-->>C: payment-required + requirements
-    C->>X: Create/Load wallet for email
-    C->>X: Send ERC-20 transfer(payTo, amount)
-    X->>E: Broadcast transaction
-    E-->>X: Tx hash + receipt
-    C->>S: payment-submitted (tx hash)
-    S->>E: Verify Transfer log (payer, payTo, amount)
-    E-->>S: Validated receipt
-    S->>T: Post tweet (optional image)
-    T-->>S: Tweet ID
-    S-->>C: payment-completed + receipt + tweetId
-    C->>C: Refresh balances and status
+    U->>C: Enter tweet & click send
+    C->>W: Initialize wallet (email)
+    W-->>C: Wallet address
+    C->>S: POST /tweet (text, imageUrl)
+    S-->>C: 402 Payment Required
+    Note over C,S: x402-axios interceptor catches 402
+    C->>W: Sign payment authorization (EIP-712)
+    W-->>C: Signature (ERC-6492/EIP-1271)
+    C->>S: Retry POST /tweet + X-PAYMENT header
+    S->>S: Verify signature (x402 middleware)
+    Note over S,F: Facilitator handles settlement async
+    S->>T: Post tweet with image (if provided)
+    T-->>S: Tweet ID & URL
+    S-->>C: 200 OK + tweet details
+    C->>U: Display success + tweet link
 ```
 
 ### Prerequisites
 
 - Node.js 18+
-- Twitter Developer Account with API v2 access
-- Crossmint API key (for Wallets) and a user email to associate the wallet
+- Twitter Developer Account with API v2 access (Read and Write permissions)
+- Crossmint API key (server-side `sk_*` key for API key signer)
+- User email for wallet association
 
 ### Install
 
 ```bash
+# Install server dependencies
 npm install
+
+# Install client dependencies
+cd sendvia && npm install
 ```
 
 ### Configure
 
-Set environment variables (copy `.env.example` to `.env`):
+Copy `.env.example` to `.env` and set:
 
-**Server (required):**
-- `RPC_URL`: EVM RPC endpoint (e.g. Base Sepolia)
-- `MERCHANT_ADDRESS`: merchant wallet address (EOA to receive payment)
-- `ASSET_ADDRESS`: USDC token address on the chosen network (default points to Base Sepolia)
-- `X402_NETWORK`: `base` or `base-sepolia` (default: base-sepolia)
-- `PRICE_USDC`: tweet price in USDC (decimal string, default: 1)
-- `TWITTER_CONSUMER_KEY`, `TWITTER_CONSUMER_SECRET`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_TOKEN_SECRET`
+**Required:**
+- `MERCHANT_ADDRESS`: Wallet address to receive payments
+- `TWITTER_CONSUMER_KEY`, `TWITTER_CONSUMER_SECRET`
+- `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_TOKEN_SECRET`
 
-Note: No `MERCHANT_PRIVATE_KEY` is required; the client performs the transfer and the server verifies it on-chain.
+**Optional:**
+- `X402_NETWORK`: Network for payments (default: `base-sepolia`)
+- `PRICE_USDC`: Price per tweet in USDC (default: `1`)
+- `PORT`: Server port (default: `10001`)
+- `CORS_ORIGIN`: CORS origin (default: `*`)
 
-**Client (`sendvia`)**
-- `CROSSMINT_API_KEY`: your Crossmint API key
-- You will input the user email in the UI at runtime
-- Server URL defaults to `http://localhost:10001`, configurable in the UI
+**Client Configuration:**
+- Crossmint API key entered in UI (persisted in localStorage)
+- User email for wallet creation entered in UI
+- Server URL defaults to `http://localhost:10001`
 
 ### Run
 
-1) Start the tweet agent server:
+**Start the server:**
 ```bash
 npm run server
-# http://localhost:10001
+# Server runs on http://localhost:10001
 ```
 
-2) Start the React client (`sendvia`):
+**Start the client:**
 ```bash
 npm run sendvia
-# http://localhost:3000
+# Client runs on http://localhost:3000
 ```
 
-3) In the client UI:
-- Enter Crossmint API key and user email
-- Enter the Tweet text and (optionally) an image URL
-- Optionally change the server URL
-- Click "Start Payment Flow" to pay and trigger tweeting
+**Usage:**
+1. Open http://localhost:3000 in your browser
+2. Enter Crossmint API key and user email
+3. Click "Initialize Wallet" to create a Crossmint smart wallet
+4. Enter tweet text (max 280 characters)
+5. Optionally add an image URL
+6. Click "Send Tweet (with x402 Payment)"
+7. The x402 interceptor handles payment automatically
+8. Tweet is posted after payment verification
 
-Expected:
-- Payment requirements from server (direct-transfer)
-- ERC‑20 transfer from Crossmint wallet to merchant
-- Server verifies transaction and posts the tweet
-- UI shows balances and the resulting tweet ID in logs
+**Expected flow:**
+- Client requests `/tweet` endpoint
+- Server returns 402 Payment Required
+- x402-axios interceptor catches 402 and requests payment signature
+- Crossmint wallet signs EIP-712 payment authorization
+- Client retries request with signature in `X-PAYMENT` header
+- Server verifies signature via x402 middleware
+- Tweet is posted to Twitter
+- External facilitator settles payment on-chain asynchronously
 
 ### Twitter API Setup
 
@@ -122,10 +139,11 @@ Expected:
 
 ### Troubleshooting
 
-**Direct-transfer verification failed:**
-- Ensure the client paid the exact `maxAmountRequired` to `payTo`
-- Confirm the token address (`ASSET_ADDRESS`) matches the token transferred
-- Check `RPC_URL` correctness and network
+**Signature verification failed:**
+- Ensure Crossmint wallet is properly initialized
+- Check that the network matches between client and server
+- Verify merchant address in `.env` is correct
+- Check browser console for x402 signer errors
 
 **403 Permission Denied:**
 - Check app has "Read and Write" permissions (not just "Read")
@@ -141,10 +159,26 @@ Expected:
 - Wait before retrying (Twitter has rate limits)
 - Consider implementing retry logic with backoff
 
-### Files
+### Architecture
 
-- `server.js`: tweet agent server with x402 direct-transfer verification and Twitter API integration
-- `sendvia/`: React client using Crossmint Wallets
-- `.env.example`: configuration template
+**Key Files:**
+- [`server-x402.js`](server-x402.js): Express server with x402 middleware and Twitter API
+- [`sendvia/app/page.tsx`](sendvia/app/page.tsx): Next.js client with x402-axios integration
+- [`sendvia/app/x402Adapter.ts`](sendvia/app/x402Adapter.ts): Crossmint to x402 signer adapter
+- [`.env.example`](.env.example): Configuration template
 
-Note: If `.env.example` is not present, create a `.env` file with the variables listed above.
+**Legacy Files:**
+- `server.js`: Original A2A direct-transfer implementation (deprecated)
+- `sendvia/app/page-legacy.tsx`: Original A2A client (deprecated)
+
+**Tech Stack:**
+- Server: Express + x402-express + twitter-api-v2
+- Client: Next.js + x402-axios + @crossmint/wallets-sdk
+- Payment: x402 protocol with EIP-712 signatures
+- Settlement: External facilitator (https://x402.org/facilitator)
+
+## Known Issues
+
+⚠️ **Crossmint Signature Issue**: Currently experiencing issues with API key signer + deployed wallets. See [KNOWN_ISSUES.md](./KNOWN_ISSUES.md) for details.
+
+**Workaround**: Use pre-deployed wallets (skip the "Deploy Wallet" step) until the issue is resolved.

@@ -1,16 +1,20 @@
-export const metadata = {
-  title: 'sendvia',
-  description: 'Crossmint x A2A direct-transfer client',
-};
+import type { Metadata } from 'next'
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export const metadata: Metadata = {
+  title: 'sendvia - x402 Tweet Agent',
+  description: 'Post tweets with Crossmint wallets using the x402 payment protocol',
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
   return (
     <html lang="en">
-      <body style={{ fontFamily: 'Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji' }}>
+      <body style={{ margin: 0, padding: 0 }}>
         {children}
       </body>
     </html>
-  );
+  )
 }
-
-
