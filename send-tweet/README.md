@@ -1,50 +1,59 @@
 # x402 Tweet Agent
 
-Posts tweets to X/Twitter for payment via x402 protocol. Server validates signatures and posts tweets. Client creates Crossmint smart wallets and signs payment authorizations. Settlement handled by external facilitator.
+A unified Next.js application that posts tweets to X/Twitter for payment via the x402 protocol. The app uses Next.js middleware for payment validation, API routes for tweet posting, and a React frontend with Crossmint smart wallets for payment authorization. Settlement is handled by an external facilitator.
+
+## Architecture
+
+This is a **full-stack Next.js application** with:
+- **Frontend**: React app with Crossmint wallet integration (`/`)
+- **Middleware**: x402 payment validation using `x402-next`
+- **API Routes**:
+  - `/api/tweet` - Posts tweets (protected by x402 payment)
+  - `/api/health` - Health check endpoint
+- **Twitter Integration**: Server-side Twitter API v2 integration
 
 ## Prerequisites
 
 - Node.js 18.0.0+
 - Twitter Developer Account with API v2 access (Elevated tier, Read+Write permissions)
-- Crossmint API key (server-side `sk_staging_*` or `sk_production_*`)
+- Crossmint API key (client-side `sk_staging_*` or `sk_production_*`)
 - Email address for wallet creation
 - Base Sepolia testnet (default) or Base mainnet
 
 ## Installation
 
 ```bash
-# Install server dependencies
-npm install
+# Navigate to the Next.js app directory
+cd sendvia
 
-# Install client dependencies
-cd sendvia && npm install && cd ..
+# Install dependencies
+npm install
 ```
 
 ## Configuration
 
-Create `.env` from `.env.example`:
+Create `.env.local` in the `sendvia` directory:
 
 ```bash
-cp .env.example .env
+cd sendvia
+cp env.example .env.local
 ```
 
-**Required variables:**
+**Required variables (in `sendvia/.env.local`):**
 
 ```bash
+# Merchant wallet address for receiving payments
 MERCHANT_ADDRESS=0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb
+
+# Twitter API credentials
 TWITTER_CONSUMER_KEY=ABCxyz123...
 TWITTER_CONSUMER_SECRET=ABCxyz123...
 TWITTER_ACCESS_TOKEN=123-ABCxyz...
 TWITTER_ACCESS_TOKEN_SECRET=ABCxyz123...
-```
 
-**Optional variables (with defaults):**
-
-```bash
+# x402 Configuration
 X402_NETWORK=base-sepolia    # or 'base' for mainnet
 PRICE_USDC=1                  # price per tweet in USDC
-PORT=10001                    # server port
-CORS_ORIGIN=*                 # CORS allowed origins
 ```
 
 ### Twitter API Setup
@@ -54,21 +63,21 @@ CORS_ORIGIN=*                 # CORS allowed origins
 3. Apply for "Elevated" access (required for v2 API tweet posting)
 4. Generate API keys after setting permissions
 5. Verify Twitter account has phone number attached
-6. Copy all 4 credentials to `.env`
+6. Copy all 4 credentials to `sendvia/.env.local`
 
 ## Running
 
-**Start server:**
+**Development mode:**
 ```bash
-npm run server
+npm run dev
 ```
-Server listens on http://localhost:10001
+App runs on http://localhost:3000
 
-**Start client:**
+**Production build:**
 ```bash
-npm run sendvia
+npm run build
+npm run start
 ```
-Client runs on http://localhost:3000
 
 ## Usage
 
@@ -85,7 +94,7 @@ Client runs on http://localhost:3000
 
 ## API Reference
 
-### GET /health
+### GET /api/health
 
 Health check endpoint.
 
@@ -94,8 +103,6 @@ Health check endpoint.
 {
   "status": "healthy",
   "timestamp": "2025-10-08T12:34:56.789Z",
-  "uptime": 123.456,
-  "port": 10001,
   "network": "base-sepolia",
   "merchantAddress": "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb",
   "twitterConfigured": true,
@@ -105,9 +112,9 @@ Health check endpoint.
 }
 ```
 
-### POST /tweet
+### POST /api/tweet
 
-Posts tweet with payment verification.
+Posts tweet with payment verification (protected by x402 middleware).
 
 **Authentication:** x402 payment protocol (EIP-712 signature)
 
@@ -192,19 +199,21 @@ sequenceDiagram
     C->>U: Display success + tweet link
 ```
 
-## Architecture
+## Technical Architecture
 
-**Server (`server-x402.js`):**
-- Express server with x402 payment middleware
-- Twitter API v2 integration (twitter-api-v2@^1.27.0)
-- Validates EIP-712 signatures via paymentMiddleware
-- Posts tweets after payment verification
+**Next.js Middleware (`sendvia/middleware.ts`):**
+- x402-next payment middleware for Next.js
+- Validates EIP-712 signatures before allowing API access
+- Configured for `/api/tweet` endpoint
 - External facilitator handles on-chain settlement (https://x402.org/facilitator)
-- Image download and upload to Twitter
 
-**Client (`sendvia/app/page.tsx`):**
-- Next.js 15.5.3+ client application
-- Crossmint smart wallet integration (@crossmint/wallets-sdk@0.14.0)
+**API Routes (`sendvia/app/api/`):**
+- `/api/tweet` - Twitter API v2 integration, posts tweets after payment verification
+- `/api/health` - Health check and configuration status
+- Server-side Twitter client with image download/upload support
+
+**Frontend (`sendvia/app/page.tsx`):**
+- React client with Crossmint smart wallet integration
 - x402-axios interceptor for automatic payment handling
 - localStorage persistence for configuration
 - Real-time activity logging
@@ -220,8 +229,9 @@ sequenceDiagram
 
 **Error: `MERCHANT_ADDRESS is required`**
 ```bash
-# Set merchant address in .env
-echo "MERCHANT_ADDRESS=0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb" >> .env
+# Set merchant address in sendvia/.env.local
+cd sendvia
+echo "MERCHANT_ADDRESS=0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb" >> .env.local
 ```
 
 **Error: Twitter API 403 Permission Denied**
@@ -231,7 +241,7 @@ echo "MERCHANT_ADDRESS=0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb" >> .env
 - Ensure Twitter account has verified phone number
 
 **Error: Twitter API 401 Authentication Failed**
-- Verify all 4 credentials in `.env` are correct
+- Verify all 4 credentials in `sendvia/.env.local` are correct
 - Check for extra spaces, quotes, or newlines in values
 - Regenerate tokens if credentials are old
 
@@ -257,43 +267,47 @@ echo "MERCHANT_ADDRESS=0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb" >> .env
 - Ensure URL returns image content-type (JPEG, PNG, GIF, WebP)
 
 **Error: CORS blocked request**
-- Set `CORS_ORIGIN` in `.env` to client URL: `http://localhost:3000`
-- Or keep default `*` for development
+- CORS is handled automatically by Next.js (same-origin)
+- API routes and frontend are on the same domain (localhost:3000)
 
 ## Dependencies
 
-**Server:**
-- express@^4.19.2
-- x402-express@^0.6.5 (payment middleware)
+**Next.js Application (sendvia/):**
+- next@^15.5.3 (Full-stack framework)
+- react@^19.1.1 (Frontend)
+- x402-next@^0.6.0 (Next.js payment middleware)
+- x402-axios@^0.6.6 (Client-side payment interceptor)
 - twitter-api-v2@^1.27.0 (Twitter API client)
-- cors@^2.8.5
-- dotenv@^17.2.2
-- ethers@^6.13.2
-
-**Client:**
-- next@^15.5.3
-- react@^19.1.1
-- x402-axios@^0.6.6 (payment interceptor)
-- @crossmint/wallets-sdk@0.14.0 (smart wallet)
-- axios@^1.7.9
-- viem@^2.38.0
+- @crossmint/wallets-sdk@0.14.0 (Smart wallet integration)
+- axios@^1.7.9 (HTTP client)
+- viem@^2.38.0 (Ethereum utilities)
+- dotenv@^17.2.2 (Environment variables)
 
 ## File Structure
 
 ```
 send-tweet/
-├── server-x402.js           # Express server with x402 middleware
-├── package.json             # Server dependencies
-├── .env.example             # Configuration template
-├── .env                     # Configuration (create from .env.example)
-├── sendvia/                 # Next.js client application
+├── package.json             # Root package (runs sendvia scripts)
+├── server.js                # Legacy A2A server (not used in main flow)
+├── sendvia/                 # Next.js full-stack application
+│   ├── middleware.ts        # x402-next payment middleware
+│   ├── env.example          # Environment variables template
+│   ├── .env.local           # Configuration (create from env.example)
 │   ├── app/
-│   │   ├── page.tsx         # Main client UI
-│   │   ├── x402Adapter.ts   # Crossmint to x402 adapter
+│   │   ├── page.tsx         # Frontend UI (React client)
+│   │   ├── x402Adapter.ts   # Crossmint to x402 signer adapter
 │   │   ├── walletUtils.ts   # Wallet deployment utilities
-│   │   └── globals.css      # Styles
-│   └── package.json         # Client dependencies
-└── README.md                # This file
+│   │   ├── globals.css      # Global styles
+│   │   ├── lib/
+│   │   │   └── twitter.ts   # Twitter API client utilities
+│   │   └── api/
+│   │       ├── tweet/
+│   │       │   └── route.ts # POST /api/tweet
+│   │       └── health/
+│   │           └── route.ts # GET /api/health
+│   ├── package.json         # Application dependencies
+│   └── tsconfig.json        # TypeScript config with path aliases
+└── README.md                # Documentation
 ```
 
 ## Known Issues

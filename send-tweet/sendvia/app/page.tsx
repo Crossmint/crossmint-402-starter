@@ -14,8 +14,7 @@ const STORAGE_KEY = 'sendvia_config';
 export default function Home() {
   const [apiKey, setApiKey] = useState('');
   const [userEmail, setUserEmail] = useState('');
-  const [serverUrl, setServerUrl] = useState('http://localhost:10001');
-  const [tweetText, setTweetText] = useState('just a smol town gurlll, livin in a loooonelyyy world');
+  const [tweetText, setTweetText] = useState('beep beep boop boop');
   const [imageUrl, setImageUrl] = useState('');
   const [logs, setLogs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -37,7 +36,6 @@ export default function Home() {
         const config = JSON.parse(saved);
         if (config.apiKey) setApiKey(config.apiKey);
         if (config.userEmail) setUserEmail(config.userEmail);
-        if (config.serverUrl) setServerUrl(config.serverUrl);
       }
     } catch (e) {
       console.error('Failed to load saved config:', e);
@@ -47,12 +45,12 @@ export default function Home() {
   // Save config to localStorage whenever it changes
   useEffect(() => {
     try {
-      const config = { apiKey, userEmail, serverUrl };
+      const config = { apiKey, userEmail };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
     } catch (e) {
       console.error('Failed to save config:', e);
     }
-  }, [apiKey, userEmail, serverUrl]);
+  }, [apiKey, userEmail]);
 
   // Input validation helpers
   const isValidEmail = (email: string): boolean => {
@@ -66,16 +64,6 @@ export default function Home() {
     try {
       new URL(url);
       return true;
-    } catch {
-      return false;
-    }
-  };
-
-  const isValidServerUrl = (url: string): boolean => {
-    if (!url) return false;
-    try {
-      const parsed = new URL(url);
-      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
     } catch {
       return false;
     }
@@ -152,11 +140,6 @@ export default function Home() {
       return;
     }
 
-    if (!isValidServerUrl(serverUrl)) {
-      addLog('Please enter a valid server URL (http:// or https://)');
-      return;
-    }
-
     if (!tweetText.trim()) {
       addLog('Please enter tweet text');
       return;
@@ -182,7 +165,7 @@ export default function Home() {
       const evmWallet = EVMWallet.from(wallet);
       const signer = createX402Signer(evmWallet);
 
-      const axiosInstance = axios.create({ baseURL: serverUrl });
+      const axiosInstance = axios.create({ baseURL: '/api' });
       withPaymentInterceptor(axiosInstance, signer as any);
 
       // Make the tweet request - x402 interceptor will handle payment if required
@@ -308,32 +291,6 @@ export default function Home() {
                   transition: 'border-color 0.2s'
                 }}
                 aria-required="true"
-              />
-            </div>
-            <div style={{ gridColumn: '1 / span 2' }}>
-              <label htmlFor="serverUrl" style={{
-                display: 'block',
-                fontSize: 14,
-                marginBottom: 6,
-                fontWeight: 500,
-                color: '#475569'
-              }}>
-                Server URL
-              </label>
-              <input
-                id="serverUrl"
-                placeholder="http://localhost:10001"
-                value={serverUrl}
-                onChange={e => setServerUrl(e.target.value)}
-                style={{
-                  padding: '10px 12px',
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: 8,
-                  fontSize: 14,
-                  transition: 'border-color 0.2s'
-                }}
               />
             </div>
           </div>

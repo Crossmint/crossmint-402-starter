@@ -21,6 +21,13 @@ export function createX402Signer(wallet: Wallet<any>): Signer {
     async signTypedData(params: any) {
       const { domain, message, primaryType, types } = params;
 
+      console.log("🔐 Signing x402 payment data:", {
+        walletAddress: evm.address,
+        primaryType,
+        domain,
+        message
+      });
+
       // Sign with Crossmint wallet
       const sig = await evm.signTypedData({
         domain,
@@ -43,26 +50,34 @@ export function createX402Signer(wallet: Wallet<any>): Signer {
 function processSignature(rawSignature: string): `0x${string}` {
   const signature = ensureHexPrefix(rawSignature);
 
+  console.log(`📝 Processing signature: ${signature.substring(0, 20)}... (${signature.length} chars)`);
+
   // Handle ERC-6492 wrapped signatures (for pre-deployed wallets)
   if (isERC6492Signature(signature)) {
+    console.log("✅ ERC-6492 signature detected - keeping for facilitator");
     return signature;
   }
 
   // Handle EIP-1271 signatures (for deployed smart contract wallets)
   if (signature.length === 174) {
+    console.log("✅ EIP-1271 signature detected");
     return signature;
   }
 
   // Handle standard ECDSA signatures (65 bytes / 132 hex chars)
   if (signature.length === 132) {
+    console.log("✅ Standard ECDSA signature");
     return signature;
   }
 
   // Handle non-standard lengths - try to extract standard signature
   if (signature.length > 132) {
-    return ('0x' + signature.slice(-130)) as `0x${string}`;
+    const extracted = '0x' + signature.slice(-130);
+    console.log(`🔧 Extracted standard signature from longer format`);
+    return extracted as `0x${string}`;
   }
 
+  console.log("⚠️ Using signature as-is");
   return signature;
 }
 
