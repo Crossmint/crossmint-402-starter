@@ -441,18 +441,6 @@ export default function Home() {
         {!wallet && (
           <>
             <div style={{
-              background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
-              borderRadius: 12,
-              padding: '1.25rem',
-              marginBottom: '1rem',
-              border: '1px solid #fbbf24'
-            }}>
-              <div style={{ fontSize: 14, color: '#78350f', lineHeight: 1.6 }}>
-                <strong>⚠️ Known Issue:</strong> Deployed wallets with API key signer currently experience signature timeouts. For now, use <strong>pre-deployed wallets</strong> (skip the Deploy button) for best results.
-              </div>
-            </div>
-
-            <div style={{
               background: 'linear-gradient(135deg, #e0e7ff 0%, #fce7f3 100%)',
               borderRadius: 12,
               padding: '1.25rem',
