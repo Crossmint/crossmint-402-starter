@@ -29,6 +29,7 @@ export const middleware = paymentMiddleware(
 );
 
 export const config = {
-  matcher: ['/api/tweet']
+  matcher: ['/api/tweet'],
+  runtime: 'nodejs' // Use Node.js runtime instead of Edge
 };
 

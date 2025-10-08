@@ -6,6 +6,7 @@ import { withPaymentInterceptor } from 'x402-axios';
 import { CrossmintWallets, createCrossmint, EVMWallet } from "@crossmint/wallets-sdk";
 import { createX402Signer } from './x402Adapter';
 import { checkWalletDeployment, deployWallet } from './walletUtils';
+import { fetchWalletBalances } from './utils/balances';
 import './globals.css';
 
 const TWITTER_CHAR_LIMIT = 280;
@@ -22,6 +23,8 @@ export default function Home() {
   const [wallet, setWallet] = useState<any>(null);
   const [isDeployed, setIsDeployed] = useState(false);
   const [deploymentTx, setDeploymentTx] = useState<string>('');
+  const [balances, setBalances] = useState<{ eth: string; usdc: string } | null>(null);
+  const [loadingBalances, setLoadingBalances] = useState(false);
 
   const tweetCharsRemaining = TWITTER_CHAR_LIMIT - tweetText.length;
   const isTweetTooLong = tweetCharsRemaining < 0;
@@ -69,6 +72,20 @@ export default function Home() {
     }
   };
 
+  const refreshBalances = async (address: string) => {
+    setLoadingBalances(true);
+    try {
+      addLog('💰 Fetching wallet balances...');
+      const balanceData = await fetchWalletBalances(address);
+      setBalances(balanceData);
+      addLog(`💎 ETH: ${balanceData.eth} | 💵 USDC: ${balanceData.usdc}`);
+    } catch (e: any) {
+      addLog(`❌ Failed to fetch balances: ${e?.message || String(e)}`);
+    } finally {
+      setLoadingBalances(false);
+    }
+  };
+
   const initializeWallet = async () => {
     if (!apiKey || !userEmail) {
       addLog('Please enter Crossmint API key and user email');
@@ -99,6 +116,9 @@ export default function Home() {
       const deployed = await checkWalletDeployment(cmWallet.address);
       setIsDeployed(deployed);
       addLog(`🏗️ Wallet status: ${deployed ? 'deployed' : 'pre-deployed'}`);
+
+      // Fetch balances
+      await refreshBalances(cmWallet.address);
     } catch (e: any) {
       const errMsg = e?.message || String(e);
       addLog(`❌ Wallet initialization failed: ${errMsg}`);
@@ -388,6 +408,54 @@ export default function Home() {
                     border: '1px solid #e2e8f0'
                   }}>
                     <span style={{ fontWeight: 500 }}>Tx:</span> {deploymentTx.substring(0, 20)}...
+                  </div>
+                )}
+
+                {/* Balance Display */}
+                {balances && (
+                  <div style={{
+                    marginTop: 12,
+                    padding: 12,
+                    background: 'white',
+                    borderRadius: 8,
+                    border: '1px solid #e2e8f0'
+                  }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: '#64748b', marginBottom: 8 }}>
+                      💰 Wallet Balances
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                        <span style={{ color: '#64748b' }}>ETH:</span>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 500, color: '#1e293b' }}>
+                          {loadingBalances ? '⏳ Loading...' : balances.eth}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                        <span style={{ color: '#64748b' }}>USDC:</span>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 500, color: '#1e293b' }}>
+                          {loadingBalances ? '⏳ Loading...' : balances.usdc}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => walletAddress && refreshBalances(walletAddress)}
+                      disabled={loadingBalances}
+                      style={{
+                        marginTop: 8,
+                        padding: '6px 12px',
+                        fontSize: 12,
+                        background: loadingBalances ? '#cbd5e1' : '#6366f1',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: 6,
+                        fontWeight: 500,
+                        cursor: loadingBalances ? 'not-allowed' : 'pointer',
+                        width: '100%',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      {loadingBalances ? '⏳ Refreshing...' : '🔄 Refresh Balances'}
+                    </button>
                   </div>
                 )}
               </div>
