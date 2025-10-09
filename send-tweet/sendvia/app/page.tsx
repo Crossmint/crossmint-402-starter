@@ -27,6 +27,7 @@ export default function Home() {
   const [isFunding, setIsFunding] = useState(false);
   const [fundingMessage, setFundingMessage] = useState('');
   const [setupComplete, setSetupComplete] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const tweetCharsRemaining = TWITTER_CHAR_LIMIT - tweetText.length;
   const isTweetTooLong = tweetCharsRemaining < 0;
@@ -88,45 +89,39 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const checkAndFundWallet = async (address: string, currentBalances: { eth: string; usdc: string }) => {
-    const usdcBalance = parseFloat(currentBalances.usdc);
-    const ethBalance = parseFloat(currentBalances.eth);
+  const requestFundsFromFaucet = async () => {
+    if (!walletAddress || !balances) return;
 
-    const needsFunding = usdcBalance < 0.05 || ethBalance < 0.01;
-
-    if (!needsFunding) {
-      // Wallet has sufficient balance, mark setup as complete
-      setSetupComplete(true);
-      return;
-    }
+    setIsFunding(true);
+    setFundingMessage('Requesting funds from faucet...');
 
     try {
-      setIsFunding(true);
-      setFundingMessage('Requesting funds from faucet...');
-
       addLog('');
-      addLog('💧 Low balance detected - requesting faucet funds...');
-      addLog(`Current: ${currentBalances.usdc} USDC, ${currentBalances.eth} ETH`);
+      addLog('💧 Requesting faucet funds...');
+      addLog(`Current: ${balances.usdc} USDC, ${balances.eth} ETH`);
 
       const response = await axios.post('/api/faucet', {
-        walletAddress: address,
-        currentBalances
+        walletAddress: walletAddress,
+        currentBalances: balances
       });
 
       if (response.data.skipFaucet) {
-        // Faucet not configured or had an error, silently skip
         if (response.data.error) {
           addLog(`ℹ️ Faucet: ${response.data.error}`);
+          setFundingMessage(response.data.error);
         } else {
-          addLog('ℹ️ Faucet not configured - skipping auto-funding');
+          addLog('ℹ️ Faucet not configured');
+          setFundingMessage('Faucet not configured');
         }
-        setIsFunding(false);
-        setFundingMessage('');
+        setTimeout(() => {
+          setIsFunding(false);
+          setFundingMessage('');
+        }, 3000);
         return;
       }
 
       if (response.data.funded) {
-        setFundingMessage('Faucet funding successful! Waiting for confirmation...');
+        setFundingMessage('Funds sent! Waiting for confirmation...');
 
         addLog('✅ Faucet funding successful!');
         response.data.transactions.forEach((tx: any) => {
@@ -134,35 +129,34 @@ export default function Home() {
           addLog(`📝 TX: ${tx.hash.substring(0, 20)}...`);
         });
 
-        // Wait a bit for transactions to confirm, then refresh
         addLog('⏳ Waiting for confirmation...');
         await new Promise(resolve => setTimeout(resolve, 3000));
 
-        const updatedBalances = await fetchWalletBalances(address);
+        const updatedBalances = await fetchWalletBalances(walletAddress);
         setBalances(updatedBalances);
         addLog(`✅ Updated balance: ${updatedBalances.usdc} USDC, ${updatedBalances.eth} ETH`);
 
-        setFundingMessage('Wallet funded successfully!');
-        setSetupComplete(true); // Setup complete immediately
+        setFundingMessage('Wallet funded successfully! 🎉');
         setTimeout(() => {
           setIsFunding(false);
           setFundingMessage('');
         }, 2000);
       } else {
         addLog('ℹ️ Wallet has sufficient balance');
-        setIsFunding(false);
-        setFundingMessage('');
-        setSetupComplete(true); // Setup complete (no funding needed)
+        setFundingMessage('Balance already sufficient');
+        setTimeout(() => {
+          setIsFunding(false);
+          setFundingMessage('');
+        }, 2000);
       }
     } catch (e: any) {
       const errorMsg = e?.response?.data?.error || e?.message || String(e);
-      addLog(`⚠️ Faucet unavailable: ${errorMsg}`);
-      setFundingMessage('Faucet not available. Please add funds manually.');
-      setSetupComplete(true); // Allow user to proceed immediately
+      addLog(`⚠️ Faucet error: ${errorMsg}`);
+      setFundingMessage('Faucet request failed');
       setTimeout(() => {
         setIsFunding(false);
         setFundingMessage('');
-      }, 4000);
+      }, 3000);
     }
   };
 
@@ -204,9 +198,7 @@ export default function Home() {
         setBalances(balanceData);
         addLog(`Balance: ${balanceData.usdc} USDC, ${balanceData.eth} ETH`);
 
-        // Still check if wallet needs funding
-        await checkAndFundWallet(address, balanceData);
-
+        setSetupComplete(true); // Mark setup as complete
         setStatusMessage('Account created, but signing may not work without API key.');
         setTimeout(() => setStatusMessage(''), 3000);
         return;
@@ -232,9 +224,7 @@ export default function Home() {
       setBalances(balanceData);
       addLog(`💰 Balance: ${balanceData.usdc} USDC, ${balanceData.eth} ETH`);
 
-      // Check if wallet needs funding from faucet
-      await checkAndFundWallet(cmWallet.address, balanceData);
-
+      setSetupComplete(true); // Mark setup as complete
       setStatusMessage('Account ready');
       setTimeout(() => setStatusMessage(''), 3000);
 
@@ -250,16 +240,16 @@ export default function Home() {
   const refreshBalances = async () => {
     if (!walletAddress) return;
 
+    setIsRefreshing(true);
     try {
       addLog('Refreshing balance...');
       const balanceData = await fetchWalletBalances(walletAddress);
       setBalances(balanceData);
       addLog(`Balance updated: ${balanceData.usdc} USDC, ${balanceData.eth} ETH`);
-
-      // Check if wallet needs funding
-      await checkAndFundWallet(walletAddress, balanceData);
     } catch (e: any) {
       addLog(`Failed to fetch balance: ${e?.message || String(e)}`);
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -277,6 +267,7 @@ export default function Home() {
     setSetupComplete(false);
     setIsFunding(false);
     setFundingMessage('');
+    setIsRefreshing(false);
 
     // Clear localStorage
     localStorage.removeItem(STORAGE_KEY);
@@ -614,114 +605,71 @@ export default function Home() {
                 marginBottom: '1rem',
                 marginTop: 0
               }}>
-                {!wallet ? 'Get Started' : 'Setting Up Your Account'}
+                Get Started
               </h2>
 
-              {!wallet ? (
-                <>
-                  <p style={{
-                    fontSize: 15,
-                    color: '#6B6B6B',
-                    marginBottom: '2rem',
-                    lineHeight: 1.6
-                  }}>
-                    Enter your email to create a secure payment account. Each tweet costs $0.001 USDC.
-                  </p>
+              <p style={{
+                fontSize: 15,
+                color: '#6B6B6B',
+                marginBottom: '2rem',
+                lineHeight: 1.6
+              }}>
+                Enter your email to create a secure payment account. Each tweet costs $0.001 USDC.
+              </p>
 
-                  <input
-                    type="email"
-                    placeholder="your@email.com"
-                    value={userEmail}
-                    onChange={e => setUserEmail(e.target.value)}
-                    onKeyPress={e => e.key === 'Enter' && createAccount()}
-                    autoFocus
-                    style={{
-                      padding: '14px 18px',
-                      width: '100%',
-                      boxSizing: 'border-box',
-                      border: '1px solid #E5E5E5',
-                      borderRadius: 4,
-                      fontSize: 16,
-                      marginBottom: '16px',
-                      fontFamily: "'Lato', sans-serif",
-                      textAlign: 'center'
-                    }}
-                  />
+              <input
+                type="email"
+                placeholder="your@email.com"
+                value={userEmail}
+                onChange={e => setUserEmail(e.target.value)}
+                onKeyPress={e => e.key === 'Enter' && createAccount()}
+                autoFocus
+                style={{
+                  padding: '14px 18px',
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  border: '1px solid #E5E5E5',
+                  borderRadius: 4,
+                  fontSize: 16,
+                  marginBottom: '16px',
+                  fontFamily: "'Lato', sans-serif",
+                  textAlign: 'center'
+                }}
+              />
 
-                  <button
-                    onClick={createAccount}
-                    disabled={loading || !userEmail}
-                    style={{
-                      padding: '14px 32px',
-                      background: (loading || !userEmail) ? '#FFFFFF' : '#1A1A1A',
-                      color: (loading || !userEmail) ? '#6B6B6B' : '#FFFFFF',
-                      border: '1px solid #E5E5E5',
-                      borderRadius: 4,
-                      fontSize: 16,
-                      fontWeight: 400,
-                      cursor: (loading || !userEmail) ? 'not-allowed' : 'pointer',
-                      width: '100%',
-                      fontFamily: "'Lato', sans-serif"
-                    }}
-                  >
-                    {loading ? 'Creating Account...' : 'Create Account'}
-                  </button>
+              <button
+                onClick={createAccount}
+                disabled={loading || !userEmail}
+                style={{
+                  padding: '14px 32px',
+                  background: (loading || !userEmail) ? '#FFFFFF' : '#1A1A1A',
+                  color: (loading || !userEmail) ? '#6B6B6B' : '#FFFFFF',
+                  border: '1px solid #E5E5E5',
+                  borderRadius: 4,
+                  fontSize: 16,
+                  fontWeight: 400,
+                  cursor: (loading || !userEmail) ? 'not-allowed' : 'pointer',
+                  width: '100%',
+                  fontFamily: "'Lato', sans-serif"
+                }}
+              >
+                {loading ? '⏳ Creating Account...' : 'Create Account'}
+              </button>
 
-                  {statusMessage && (
-                    <div style={{
-                      marginTop: '16px',
-                      fontSize: 14,
-                      color: '#6B6B6B',
-                      textAlign: 'center'
-                    }}>
-                      {statusMessage}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <p style={{
-                    fontSize: 15,
-                    color: '#6B6B6B',
-                    marginBottom: '2rem',
-                    lineHeight: 1.6
-                  }}>
-                    {userEmail}
-                  </p>
-
-                  {isFunding && (
-                    <div style={{
-                      padding: '16px',
-                      background: '#FFF9E6',
-                      borderRadius: 4,
-                      border: '1px solid #FFE4A3',
-                      fontSize: 14,
-                      color: '#856404',
-                      marginBottom: '16px'
-                    }}>
-                      💧 {fundingMessage}
-                    </div>
-                  )}
-
-                  {!isFunding && balances && (
-                    <div style={{
-                      padding: '16px',
-                      background: '#F0FDF4',
-                      borderRadius: 4,
-                      border: '1px solid #86EFAC',
-                      fontSize: 14,
-                      color: '#2D7A3E',
-                      marginBottom: '16px'
-                    }}>
-                      ✓ Account ready! Balance: ${balances.usdc} USDC
-                    </div>
-                  )}
-                </>
+              {statusMessage && (
+                <div style={{
+                  marginTop: '16px',
+                  fontSize: 14,
+                  color: '#6B6B6B',
+                  textAlign: 'center'
+                }}>
+                  {statusMessage}
+                </div>
               )}
             </div>
           )}
 
-          {/* Tweet Composer - Only show after setup is complete */}
+          {/* Tweet Composer - Show after account status */}
           {setupComplete && (
             <div style={{
               background: '#FFFFFF',
@@ -764,11 +712,11 @@ export default function Home() {
 
             <div style={{
               fontSize: 13,
-              color: isTweetTooLong ? '#C53030' : '#6B6B6B',
+              color: isTweetTooLong ? '#C53030' : tweetCharsRemaining < 20 ? '#856404' : '#6B6B6B',
               marginBottom: '16px',
               textAlign: 'right'
             }}>
-              {tweetCharsRemaining} characters
+              {isTweetTooLong ? '❌' : tweetCharsRemaining < 20 ? '⚠️' : '✓'} {tweetCharsRemaining} characters
             </div>
 
             <input
@@ -805,7 +753,7 @@ export default function Home() {
                 fontFamily: "'Lato', sans-serif"
               }}
             >
-              {loading ? 'Sending...' : !wallet ? 'Create account below to start' : 'Send Tweet · $0.001'}
+              {loading ? '⏳ Sending...' : !wallet ? '👇 Create account below to start' : '🐦 Send Tweet · $0.001'}
             </button>
 
             {/* Status Message */}
@@ -813,10 +761,10 @@ export default function Home() {
               <div style={{
                 marginTop: '16px',
                 fontSize: 14,
-                color: successTweetUrl ? '#2D7A3E' : '#6B6B6B',
+                color: successTweetUrl ? '#2D7A3E' : loading ? '#856404' : '#6B6B6B',
                 textAlign: 'center'
               }}>
-                {statusMessage}
+                {loading && '⏳ '}{statusMessage}
               </div>
             )}
 
@@ -845,7 +793,7 @@ export default function Home() {
                     border: 'none'
                   }}
                 >
-                  View Tweet →
+                  🐦 View Tweet →
                 </a>
                 {txHash && (
                   <a
@@ -863,7 +811,7 @@ export default function Home() {
                       border: '1px solid #E5E5E5'
                     }}
                   >
-                    View Payment →
+                    ⛓️ View Payment →
                   </a>
                 )}
               </div>
@@ -871,7 +819,7 @@ export default function Home() {
           </div>
           )}
 
-          {/* Account Status - Show after setup is complete */}
+          {/* Account Status - Show after account status */}
           {setupComplete && wallet && (
             <div style={{
               background: '#FFFFFF',
@@ -890,7 +838,7 @@ export default function Home() {
                 }}>
                   <div>
                     <div style={{ fontSize: 13, color: '#6B6B6B', marginBottom: '4px' }}>
-                      Account
+                      👤 Account
                     </div>
                     <div style={{ fontSize: 15, fontWeight: 400, color: '#1A1A1A' }}>
                       {userEmail}
@@ -909,26 +857,59 @@ export default function Home() {
                       color: '#6B6B6B'
                     }}
                   >
-                    Logout
+                    👋 Logout
                   </button>
                 </div>
-                <button
-                  onClick={refreshBalances}
-                  style={{
-                    padding: '6px 14px',
-                    background: '#FFFFFF',
-                    border: '1px solid #E5E5E5',
-                    borderRadius: 4,
-                    fontSize: 13,
-                    fontWeight: 400,
-                    cursor: 'pointer',
-                    color: '#6B6B6B',
-                    width: '100%'
-                  }}
-                >
-                  Refresh Balance
-                </button>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <button
+                    onClick={refreshBalances}
+                    disabled={isRefreshing || isFunding}
+                    style={{
+                      padding: '6px 14px',
+                      background: '#FFFFFF',
+                      border: '1px solid #E5E5E5',
+                      borderRadius: 4,
+                      fontSize: 13,
+                      fontWeight: 400,
+                      cursor: (isRefreshing || isFunding) ? 'not-allowed' : 'pointer',
+                      color: '#6B6B6B'
+                    }}
+                  >
+                    {isRefreshing ? '⏳ Refreshing...' : '🔄 Refresh'}
+                  </button>
+                  <button
+                    onClick={requestFundsFromFaucet}
+                    disabled={isFunding || isRefreshing}
+                    style={{
+                      padding: '6px 14px',
+                      background: isFunding ? '#FFF9E6' : '#FFFFFF',
+                      border: '1px solid #E5E5E5',
+                      borderRadius: 4,
+                      fontSize: 13,
+                      fontWeight: 400,
+                      cursor: (isFunding || isRefreshing) ? 'not-allowed' : 'pointer',
+                      color: isFunding ? '#856404' : '#6B6B6B'
+                    }}
+                  >
+                    {isFunding ? '⏳ Funding...' : '💧 Request Funds'}
+                  </button>
+                </div>
               </div>
+
+              {isFunding && fundingMessage && (
+                <div style={{
+                  marginTop: '12px',
+                  padding: '12px',
+                  background: '#FFF9E6',
+                  borderRadius: 4,
+                  border: '1px solid #FFE4A3',
+                  fontSize: 13,
+                  color: '#856404',
+                  textAlign: 'center'
+                }}>
+                  {fundingMessage}
+                </div>
+              )}
 
               <div style={{
                 display: 'grid',
@@ -941,7 +922,7 @@ export default function Home() {
               }}>
                 <div>
                   <div style={{ fontSize: 12, color: '#6B6B6B', marginBottom: '4px' }}>
-                    Balance
+                    💰 Balance
                   </div>
                   <div style={{
                     fontSize: 18,
@@ -953,7 +934,7 @@ export default function Home() {
                 </div>
                 <div>
                   <div style={{ fontSize: 12, color: '#6B6B6B', marginBottom: '4px' }}>
-                    Gas (ETH)
+                    ⛽ Gas (ETH)
                   </div>
                   <div style={{ fontSize: 14, fontWeight: 400, color: '#1A1A1A' }}>
                     {balances?.eth || '0.00'}
@@ -961,7 +942,7 @@ export default function Home() {
                 </div>
               </div>
 
-              {!hasBalance && balances && (
+              {!hasBalance && balances && !isFunding && (
                 <div style={{
                   marginTop: '12px',
                   fontSize: 13,
@@ -969,10 +950,10 @@ export default function Home() {
                   textAlign: 'center'
                 }}>
                   {parseFloat(balances.usdc) < 0.001 && parseFloat(balances.eth) < 0.0001
-                    ? 'Low balance. Need USDC and ETH.'
+                    ? '⚠️ Low balance. Click "Request Funds" above.'
                     : parseFloat(balances.usdc) < 0.001
-                    ? 'Low USDC balance.'
-                    : 'Low ETH for gas fees.'}
+                    ? '⚠️ Low USDC balance. Click "Request Funds".'
+                    : '⚠️ Low ETH for gas. Click "Request Funds".'}
                 </div>
               )}
 
