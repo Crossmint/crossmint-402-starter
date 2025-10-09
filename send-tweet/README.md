@@ -16,9 +16,12 @@ This is a **full-stack Next.js application** with:
 
 - Node.js 18.0.0+
 - Twitter Developer Account with API v2 access (Elevated tier, Read+Write permissions)
-- Crossmint API key (client-side `sk_staging_*` or `sk_production_*`)
-- Email address for wallet creation
+- Crossmint API key (`sk_staging_*` or `sk_production_*`) - set in environment variables
 - Base Sepolia testnet (default) or Base mainnet
+
+Users only need:
+- An email address to create an account
+- USDC in their wallet to send tweets ($1 per tweet)
 
 ## Installation
 
@@ -54,6 +57,10 @@ TWITTER_ACCESS_TOKEN_SECRET=ABCxyz123...
 # x402 Configuration
 X402_NETWORK=base-sepolia    # or 'base' for mainnet
 PRICE_USDC=1                  # price per tweet in USDC
+
+# Crossmint API Keys
+CROSSMINT_API_KEY=sk_staging_...                    # Backend operations
+NEXT_PUBLIC_CROSSMINT_API_KEY=sk_staging_...        # Client-side signing (same key)
 ```
 
 ### Twitter API Setup
@@ -82,17 +89,41 @@ npm run start
 ## Usage
 
 1. Open http://localhost:3000
-2. Enter Crossmint API key (format: `sk_staging_*` or `sk_production_*`)
-3. Enter email address
-4. Click "Initialize Wallet" - creates Crossmint smart wallet
-5. Enter tweet text (max 280 characters)
-6. Optional: Enter image URL (must be publicly accessible)
-7. Click "Send Tweet with x402 Payment"
-8. Client signs payment authorization automatically
-9. Server verifies signature and posts tweet
-10. Response includes tweet ID and URL
+2. Enter your email address to create an account
+3. Click "Create Account" - creates a secure payment wallet automatically
+4. Enter your tweet text (max 280 characters)
+5. Optional: Add an image URL
+6. Click "Send Tweet · $1"
+7. Payment is processed automatically and tweet is posted
+8. View your tweet on Twitter or check the payment transaction on-chain
+
+**Developer Mode:** Click the "Dev Mode" button in the top-right to see technical logs and debugging information.
 
 ## API Reference
+
+### POST /api/wallet/init
+
+Creates a new wallet for a user (requires backend Crossmint API key).
+
+**Request:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response (200):**
+```json
+{
+  "address": "0x1234567890abcdef...",
+  "email": "user@example.com",
+  "network": "base-sepolia"
+}
+```
+
+**Errors:**
+- `400` - Invalid or missing email
+- `500` - Server configuration error or wallet creation failed
 
 ### GET /api/health
 
@@ -208,16 +239,19 @@ sequenceDiagram
 - External facilitator handles on-chain settlement (https://x402.org/facilitator)
 
 **API Routes (`sendvia/app/api/`):**
+- `/api/wallet/init` - Creates wallet using backend Crossmint API key
 - `/api/tweet` - Twitter API v2 integration, posts tweets after payment verification
 - `/api/health` - Health check and configuration status
 - Server-side Twitter client with image download/upload support
 
 **Frontend (`sendvia/app/page.tsx`):**
-- React client with Crossmint smart wallet integration
+- Minimal, tweet-first user interface
+- Email-only account creation (no API key required from users)
 - x402-axios interceptor for automatic payment handling
-- localStorage persistence for configuration
-- Real-time activity logging
-- Input validation and accessibility features
+- localStorage persistence for account data
+- Developer mode toggle for technical logs
+- User-friendly error messages and status updates
+- Responsive design with success animations
 
 **x402 Adapter (`sendvia/app/x402Adapter.ts`):**
 - Converts Crossmint wallet to x402-compatible signer
@@ -294,13 +328,19 @@ send-tweet/
 │   ├── env.example          # Environment variables template
 │   ├── .env.local           # Configuration (create from env.example)
 │   ├── app/
-│   │   ├── page.tsx         # Frontend UI (React client)
+│   │   ├── page.tsx         # Minimal tweet-first UI
+│   │   ├── layout.tsx       # App layout and metadata
 │   │   ├── x402Adapter.ts   # Crossmint to x402 signer adapter
 │   │   ├── walletUtils.ts   # Wallet deployment utilities
 │   │   ├── globals.css      # Global styles
 │   │   ├── lib/
 │   │   │   └── twitter.ts   # Twitter API client utilities
+│   │   ├── utils/
+│   │   │   └── balances.ts  # Balance fetching utilities
 │   │   └── api/
+│   │       ├── wallet/
+│   │       │   └── init/
+│   │       │       └── route.ts # POST /api/wallet/init
 │   │       ├── tweet/
 │   │       │   └── route.ts # POST /api/tweet
 │   │       └── health/
