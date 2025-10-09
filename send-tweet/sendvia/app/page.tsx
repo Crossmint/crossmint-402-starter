@@ -34,6 +34,9 @@ export default function Home() {
   const hasBalance = balances &&
                      parseFloat(balances.usdc) >= 0.001 &&
                      parseFloat(balances.eth) >= 0.0001;
+  const hasEnoughFunds = balances &&
+                         parseFloat(balances.usdc) > 0.05 &&
+                         parseFloat(balances.eth) > 0.002;
 
   const addLog = (m: string) => setLogs(prev => [...prev, `[${new Date().toISOString()}] ${m}`]);
 
@@ -53,7 +56,7 @@ export default function Home() {
         });
 
         setWallet(cmWallet);
-        addLog(`✅ Wallet reconnected for signing`);
+        addLog(`✓ Wallet reconnected for signing`);
       }
 
       const balanceData = await fetchWalletBalances(address);
@@ -98,7 +101,7 @@ export default function Home() {
     try {
       addLog('');
       addLog('💧 Requesting faucet funds...');
-      addLog(`Current: ${balances.usdc} USDC, ${balances.eth} ETH`);
+      addLog(`📊 Current: ${balances.usdc} USDC, ${balances.eth} ETH`);
 
       const response = await axios.post('/api/faucet', {
         walletAddress: walletAddress,
@@ -123,10 +126,10 @@ export default function Home() {
       if (response.data.funded) {
         setFundingMessage('Funds sent! Waiting for confirmation...');
 
-        addLog('✅ Faucet funding successful!');
+        addLog('✓ Faucet funding successful!');
         response.data.transactions.forEach((tx: any) => {
-          addLog(`💰 Sent ${tx.amount} ${tx.type}`);
-          addLog(`📝 TX: ${tx.hash.substring(0, 20)}...`);
+          addLog(`  💸 Sent ${tx.amount} ${tx.type}`);
+          addLog(`  🔗 TX: ${tx.hash.substring(0, 20)}...`);
         });
 
         addLog('⏳ Waiting for confirmation...');
@@ -134,9 +137,9 @@ export default function Home() {
 
         const updatedBalances = await fetchWalletBalances(walletAddress);
         setBalances(updatedBalances);
-        addLog(`✅ Updated balance: ${updatedBalances.usdc} USDC, ${updatedBalances.eth} ETH`);
+        addLog(`✓ Updated balance: ${updatedBalances.usdc} USDC, ${updatedBalances.eth} ETH`);
 
-        setFundingMessage('Wallet funded successfully! 🎉');
+        setFundingMessage('Wallet funded successfully!');
         setTimeout(() => {
           setIsFunding(false);
           setFundingMessage('');
@@ -151,7 +154,7 @@ export default function Home() {
       }
     } catch (e: any) {
       const errorMsg = e?.response?.data?.error || e?.message || String(e);
-      addLog(`⚠️ Faucet error: ${errorMsg}`);
+      addLog(`❌ Faucet error: ${errorMsg}`);
       setFundingMessage('Faucet request failed');
       setTimeout(() => {
         setIsFunding(false);
@@ -181,7 +184,7 @@ export default function Home() {
       const response = await axios.post('/api/wallet/init', { email: userEmail });
       const { address } = response.data;
 
-      addLog(`✅ Account created: ${address}`);
+      addLog(`✓ Account created: ${address}`);
 
       const apiKey = process.env.NEXT_PUBLIC_CROSSMINT_API_KEY;
 
@@ -300,13 +303,13 @@ export default function Home() {
 
     try {
       addLog('🚀 Starting tweet send process...');
-      addLog(`📍 Wallet address: ${wallet.address}`);
+      addLog(`📍 Wallet: ${wallet.address}`);
       addLog('');
 
       addLog('🔐 Step 1: Creating x402 signer from Crossmint wallet');
       const evmWallet = EVMWallet.from(wallet);
       const signer = createX402Signer(evmWallet);
-      addLog('✓ x402 signer created successfully');
+      addLog('  ✓ x402 signer created successfully');
       addLog('');
 
       addLog('🔌 Step 2: Setting up payment interceptor');
@@ -316,7 +319,7 @@ export default function Home() {
       axiosInstance.interceptors.request.use((config) => {
         if (config.headers?.['X-PAYMENT']) {
           addLog('🔄 Step 5: Retrying request with payment signature');
-          addLog(`📝 X-PAYMENT header: ${String(config.headers['X-PAYMENT']).substring(0, 60)}...`);
+          addLog(`  📝 X-PAYMENT header: ${String(config.headers['X-PAYMENT']).substring(0, 60)}...`);
         }
         return config;
       });
@@ -332,11 +335,11 @@ export default function Home() {
             addLog('💰 Step 4: Received 402 Payment Required');
             const paymentDetails = error.response.data.paymentDetails;
             if (paymentDetails) {
-              addLog(`💵 Amount: ${paymentDetails.amount} (${Number(paymentDetails.amount) / 1000000} USDC)`);
-              addLog(`🏦 Merchant: ${paymentDetails.merchant}`);
-              addLog(`⛓️  Network: ${paymentDetails.network}`);
+              addLog(`  💵 Amount: ${paymentDetails.amount} (${Number(paymentDetails.amount) / 1000000} USDC)`);
+              addLog(`  🏦 Merchant: ${paymentDetails.merchant}`);
+              addLog(`  ⛓️ Network: ${paymentDetails.network}`);
               addLog('');
-              addLog('✍️  Signing payment authorization with wallet...');
+              addLog('  ✍️ Signing payment authorization with wallet...');
             }
           }
           return Promise.reject(error);
@@ -344,7 +347,7 @@ export default function Home() {
       );
 
       withPaymentInterceptor(axiosInstance, signer as any);
-      addLog('✓ Payment interceptor attached to axios instance');
+      addLog('  ✓ Payment interceptor attached to axios instance');
       addLog('');
 
       const payload: any = { text: tweetText.trim() };
@@ -354,7 +357,7 @@ export default function Home() {
       }
 
       addLog('📤 Step 3: Sending initial request to /api/tweet');
-      addLog('⏳ Expecting 402 Payment Required response...');
+      addLog('  ⏳ Expecting 402 Payment Required response...');
       addLog('');
 
       const response = await axiosInstance.post('/tweet', payload, {
@@ -369,17 +372,17 @@ export default function Home() {
       addLog('');
 
       setSuccessTweetUrl(response.data.tweetUrl);
-      setStatusMessage('Tweet posted! Agent paid 🤖');
+      setStatusMessage('Tweet posted! Agent paid');
 
       // Transaction and settlement info
       addLog('💳 Payment Settlement:');
       if (response.data.txHash) {
         setTxHash(response.data.txHash);
-        addLog(`⛓️  On-chain TX: ${response.data.txHash}`);
-        addLog(`🔍 View on BaseScan: https://sepolia.basescan.org/tx/${response.data.txHash}`);
+        addLog(`  ⛓️ On-chain TX: ${response.data.txHash}`);
+        addLog(`  🔍 View on BaseScan: https://sepolia.basescan.org/tx/${response.data.txHash}`);
       } else {
-        addLog('⏳ Settlement handled asynchronously by x402 facilitator');
-        addLog('📡 Facilitator: https://x402.org/facilitator');
+        addLog('  ⏳ Settlement handled asynchronously by x402 facilitator');
+        addLog(`  📡 Facilitator: https://x402.org/facilitator`);
       }
       addLog('');
 
@@ -397,32 +400,32 @@ export default function Home() {
 
       if (error.response?.status === 402) {
         addLog('💔 Payment verification failed');
-        addLog(`Status: ${error.response.status} Payment Required`);
-        addLog('Possible causes:');
-        addLog('  • Insufficient USDC balance');
-        addLog('  • Wallet not properly initialized');
-        addLog('  • Signature verification failed');
+        addLog(`  Status: ${error.response.status} Payment Required`);
+        addLog('  Possible causes:');
+        addLog('    • Insufficient USDC balance');
+        addLog('    • Wallet not properly initialized');
+        addLog('    • Signature verification failed');
         setStatusMessage('Payment failed. Check balance.');
       } else if (error.response?.status === 429) {
-        addLog('⏱️  Rate limit exceeded');
-        addLog(`Status: ${error.response.status} Too Many Requests`);
-        addLog('Twitter API rate limit hit. Wait 15 minutes.');
+        addLog('⏱️ Rate limit exceeded');
+        addLog(`  Status: ${error.response.status} Too Many Requests`);
+        addLog('  Twitter API rate limit hit. Wait 15 minutes.');
         setStatusMessage('Too many tweets. Wait 15 minutes.');
       } else if (error.response?.status === 403) {
         addLog('🚫 Twitter API permission denied');
-        addLog(`Status: ${error.response.status} Forbidden`);
-        addLog('Check Twitter app permissions (Read & Write required)');
+        addLog(`  Status: ${error.response.status} Forbidden`);
+        addLog('  Check Twitter app permissions (Read & Write required)');
         setStatusMessage('Twitter connection error.');
       } else if (error.response?.status === 401) {
         addLog('🔐 Authentication failed');
-        addLog(`Status: ${error.response.status} Unauthorized`);
-        addLog('Twitter API credentials may be invalid');
+        addLog(`  Status: ${error.response.status} Unauthorized`);
+        addLog('  Twitter API credentials may be invalid');
         setStatusMessage('Authentication error.');
       } else {
         addLog(`🐛 Unexpected error: ${error?.message || String(error)}`);
         if (error.response) {
-          addLog(`Status: ${error.response.status}`);
-          addLog(`Response: ${JSON.stringify(error.response.data).substring(0, 200)}`);
+          addLog(`  Status: ${error.response.status}`);
+          addLog(`  Response: ${JSON.stringify(error.response.data).substring(0, 200)}`);
 
           // Check if it's a Twitter permission error even with 500 status
           if (error.response.data?.error?.includes('permission denied') ||
@@ -669,7 +672,178 @@ export default function Home() {
             </div>
           )}
 
-          {/* Tweet Composer - Show after account status */}
+          {/* Account Status - Show after setup is complete */}
+          {setupComplete && wallet && (
+            <div style={{
+              background: '#FFFFFF',
+              borderRadius: 4,
+              padding: '1.5rem',
+              border: '1px solid #E5E5E5'
+            }}>
+              <div style={{
+                marginBottom: '16px'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '12px'
+                }}>
+                  <div>
+                    <div style={{ fontSize: 13, color: '#6B6B6B', marginBottom: '4px' }}>
+                      Account
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 400, color: '#1A1A1A' }}>
+                      {userEmail}
+                    </div>
+                  </div>
+                  <button
+                    onClick={logout}
+                    style={{
+                      padding: '6px 14px',
+                      background: '#FFFFFF',
+                      border: '1px solid #E5E5E5',
+                      borderRadius: 4,
+                      fontSize: 13,
+                      fontWeight: 400,
+                      cursor: 'pointer',
+                      color: '#6B6B6B'
+                    }}
+                  >
+                    Logout
+                  </button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: hasEnoughFunds ? '1fr' : '1fr 1fr', gap: '8px' }}>
+                  <button
+                    onClick={refreshBalances}
+                    disabled={isRefreshing || isFunding}
+                    style={{
+                      padding: '6px 14px',
+                      background: '#FFFFFF',
+                      border: '1px solid #E5E5E5',
+                      borderRadius: 4,
+                      fontSize: 13,
+                      fontWeight: 400,
+                      cursor: (isRefreshing || isFunding) ? 'not-allowed' : 'pointer',
+                      color: '#6B6B6B'
+                    }}
+                  >
+                    {isRefreshing ? '⏳ Refreshing...' : 'Refresh'}
+                  </button>
+                  {!hasEnoughFunds && (
+                    <button
+                      onClick={requestFundsFromFaucet}
+                      disabled={isFunding || isRefreshing}
+                      style={{
+                        padding: '6px 14px',
+                        background: isFunding ? '#FFF9E6' : '#FFFFFF',
+                        border: '1px solid #E5E5E5',
+                        borderRadius: 4,
+                        fontSize: 13,
+                        fontWeight: 400,
+                        cursor: (isFunding || isRefreshing) ? 'not-allowed' : 'pointer',
+                        color: isFunding ? '#856404' : '#6B6B6B'
+                      }}
+                    >
+                      {isFunding ? '⏳ Funding...' : 'Request Funds'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {isFunding && fundingMessage && (
+                <div style={{
+                  marginTop: '12px',
+                  padding: '12px',
+                  background: '#FFF9E6',
+                  borderRadius: 4,
+                  border: '1px solid #FFE4A3',
+                  fontSize: 13,
+                  color: '#856404',
+                  textAlign: 'center'
+                }}>
+                  {fundingMessage}
+                </div>
+              )}
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '12px',
+                padding: '16px',
+                background: '#FAFAFA',
+                borderRadius: 4,
+                border: '1px solid #E5E5E5'
+              }}>
+                <div>
+                  <div style={{ fontSize: 12, color: '#6B6B6B', marginBottom: '4px' }}>
+                    Balance (USDC)
+                  </div>
+                  <div style={{
+                    fontSize: 18,
+                    fontWeight: 400,
+                    color: hasBalance ? '#2D7A3E' : '#C53030'
+                  }}>
+                    ${balances?.usdc || '0.00'}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: '#6B6B6B', marginBottom: '4px' }}>
+                    Gas (ETH)
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 400, color: '#1A1A1A' }}>
+                    {balances?.eth || '0.00'}
+                  </div>
+                </div>
+              </div>
+
+              {!hasBalance && balances && !isFunding && (
+                <div style={{
+                  marginTop: '12px',
+                  fontSize: 13,
+                  color: '#C53030',
+                  textAlign: 'center'
+                }}>
+                  {parseFloat(balances.usdc) < 0.001 && parseFloat(balances.eth) < 0.0001
+                    ? 'Low balance. Click "Request Funds" above.'
+                    : parseFloat(balances.usdc) < 0.001
+                    ? 'Low USDC balance. Click "Request Funds".'
+                    : 'Low ETH for gas. Click "Request Funds".'}
+                </div>
+              )}
+
+              <details style={{ marginTop: '16px' }}>
+                <summary style={{
+                  fontSize: 13,
+                  color: '#6B6B6B',
+                  cursor: 'pointer',
+                  userSelect: 'none'
+                }}>
+                  Advanced Details
+                </summary>
+                <div style={{
+                  marginTop: '12px',
+                  padding: '12px',
+                  background: '#FAFAFA',
+                  borderRadius: 4,
+                  fontSize: 11,
+                  fontFamily: "'SF Mono', Monaco, Consolas, monospace",
+                  color: '#6B6B6B',
+                  wordBreak: 'break-all',
+                  border: '1px solid #E5E5E5'
+                }}>
+                  <div style={{ marginBottom: '8px' }}>
+                    <strong>Wallet:</strong> {walletAddress}
+                  </div>
+                  <div>
+                    <strong>Network:</strong> Base Sepolia
+                  </div>
+                </div>
+              </details>
+            </div>
+          )}
+
+          {/* Tweet Composer - Show after wallet component */}
           {setupComplete && (
             <div style={{
               background: '#FFFFFF',
@@ -716,7 +890,7 @@ export default function Home() {
               marginBottom: '16px',
               textAlign: 'right'
             }}>
-              {isTweetTooLong ? '❌' : tweetCharsRemaining < 20 ? '⚠️' : '✓'} {tweetCharsRemaining} characters
+              {tweetCharsRemaining} characters
             </div>
 
             <input
@@ -753,7 +927,7 @@ export default function Home() {
                 fontFamily: "'Lato', sans-serif"
               }}
             >
-              {loading ? '⏳ Sending...' : !wallet ? '👇 Create account below to start' : '🐦 Send Tweet · $0.001'}
+              {loading ? '⏳ Sending...' : !wallet ? 'Create account below to start' : 'Send Tweet · $0.001'}
             </button>
 
             {/* Status Message */}
@@ -793,7 +967,7 @@ export default function Home() {
                     border: 'none'
                   }}
                 >
-                  🐦 View Tweet →
+                  View Tweet →
                 </a>
                 {txHash && (
                   <a
@@ -811,181 +985,12 @@ export default function Home() {
                       border: '1px solid #E5E5E5'
                     }}
                   >
-                    ⛓️ View Payment →
+                    View Payment →
                   </a>
                 )}
               </div>
             )}
           </div>
-          )}
-
-          {/* Account Status - Show after account status */}
-          {setupComplete && wallet && (
-            <div style={{
-              background: '#FFFFFF',
-              borderRadius: 4,
-              padding: '1.5rem',
-              border: '1px solid #E5E5E5'
-            }}>
-              <div style={{
-                marginBottom: '16px'
-              }}>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: '12px'
-                }}>
-                  <div>
-                    <div style={{ fontSize: 13, color: '#6B6B6B', marginBottom: '4px' }}>
-                      👤 Account
-                    </div>
-                    <div style={{ fontSize: 15, fontWeight: 400, color: '#1A1A1A' }}>
-                      {userEmail}
-                    </div>
-                  </div>
-                  <button
-                    onClick={logout}
-                    style={{
-                      padding: '6px 14px',
-                      background: '#FFFFFF',
-                      border: '1px solid #E5E5E5',
-                      borderRadius: 4,
-                      fontSize: 13,
-                      fontWeight: 400,
-                      cursor: 'pointer',
-                      color: '#6B6B6B'
-                    }}
-                  >
-                    👋 Logout
-                  </button>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                  <button
-                    onClick={refreshBalances}
-                    disabled={isRefreshing || isFunding}
-                    style={{
-                      padding: '6px 14px',
-                      background: '#FFFFFF',
-                      border: '1px solid #E5E5E5',
-                      borderRadius: 4,
-                      fontSize: 13,
-                      fontWeight: 400,
-                      cursor: (isRefreshing || isFunding) ? 'not-allowed' : 'pointer',
-                      color: '#6B6B6B'
-                    }}
-                  >
-                    {isRefreshing ? '⏳ Refreshing...' : '🔄 Refresh'}
-                  </button>
-                  <button
-                    onClick={requestFundsFromFaucet}
-                    disabled={isFunding || isRefreshing}
-                    style={{
-                      padding: '6px 14px',
-                      background: isFunding ? '#FFF9E6' : '#FFFFFF',
-                      border: '1px solid #E5E5E5',
-                      borderRadius: 4,
-                      fontSize: 13,
-                      fontWeight: 400,
-                      cursor: (isFunding || isRefreshing) ? 'not-allowed' : 'pointer',
-                      color: isFunding ? '#856404' : '#6B6B6B'
-                    }}
-                  >
-                    {isFunding ? '⏳ Funding...' : '💧 Request Funds'}
-                  </button>
-                </div>
-              </div>
-
-              {isFunding && fundingMessage && (
-                <div style={{
-                  marginTop: '12px',
-                  padding: '12px',
-                  background: '#FFF9E6',
-                  borderRadius: 4,
-                  border: '1px solid #FFE4A3',
-                  fontSize: 13,
-                  color: '#856404',
-                  textAlign: 'center'
-                }}>
-                  {fundingMessage}
-                </div>
-              )}
-
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: '12px',
-                padding: '16px',
-                background: '#FAFAFA',
-                borderRadius: 4,
-                border: '1px solid #E5E5E5'
-              }}>
-                <div>
-                  <div style={{ fontSize: 12, color: '#6B6B6B', marginBottom: '4px' }}>
-                    💰 Balance
-                  </div>
-                  <div style={{
-                    fontSize: 18,
-                    fontWeight: 400,
-                    color: hasBalance ? '#2D7A3E' : '#C53030'
-                  }}>
-                    ${balances?.usdc || '0.00'}
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 12, color: '#6B6B6B', marginBottom: '4px' }}>
-                    ⛽ Gas (ETH)
-                  </div>
-                  <div style={{ fontSize: 14, fontWeight: 400, color: '#1A1A1A' }}>
-                    {balances?.eth || '0.00'}
-                  </div>
-                </div>
-              </div>
-
-              {!hasBalance && balances && !isFunding && (
-                <div style={{
-                  marginTop: '12px',
-                  fontSize: 13,
-                  color: '#C53030',
-                  textAlign: 'center'
-                }}>
-                  {parseFloat(balances.usdc) < 0.001 && parseFloat(balances.eth) < 0.0001
-                    ? '⚠️ Low balance. Click "Request Funds" above.'
-                    : parseFloat(balances.usdc) < 0.001
-                    ? '⚠️ Low USDC balance. Click "Request Funds".'
-                    : '⚠️ Low ETH for gas. Click "Request Funds".'}
-                </div>
-              )}
-
-              <details style={{ marginTop: '16px' }}>
-                <summary style={{
-                  fontSize: 13,
-                  color: '#6B6B6B',
-                  cursor: 'pointer',
-                  userSelect: 'none'
-                }}>
-                  Advanced Details
-                </summary>
-                <div style={{
-                  marginTop: '12px',
-                  padding: '12px',
-                  background: '#FAFAFA',
-                  borderRadius: 4,
-                  fontSize: 11,
-                  fontFamily: "'SF Mono', Monaco, Consolas, monospace",
-                  color: '#6B6B6B',
-                  wordBreak: 'break-all',
-                  border: '1px solid #E5E5E5'
-                }}>
-                  <div style={{ marginBottom: '8px' }}>
-                    <strong>Wallet:</strong> {walletAddress}
-                  </div>
-                  <div>
-                    <strong>Network:</strong> Base Sepolia
-                  </div>
-                </div>
-              </details>
-            </div>
           )}
           </div>
         </div>
