@@ -24,10 +24,15 @@ export default function Home() {
   const [showDevMode, setShowDevMode] = useState(false);
   const [successTweetUrl, setSuccessTweetUrl] = useState<string>('');
   const [txHash, setTxHash] = useState<string>('');
+  const [isFunding, setIsFunding] = useState(false);
+  const [fundingMessage, setFundingMessage] = useState('');
+  const [setupComplete, setSetupComplete] = useState(false);
 
   const tweetCharsRemaining = TWITTER_CHAR_LIMIT - tweetText.length;
   const isTweetTooLong = tweetCharsRemaining < 0;
-  const hasBalance = balances && parseFloat(balances.usdc) >= 1;
+  const hasBalance = balances &&
+                     parseFloat(balances.usdc) >= 0.001 &&
+                     parseFloat(balances.eth) >= 0.0001;
 
   const addLog = (m: string) => setLogs(prev => [...prev, `[${new Date().toISOString()}] ${m}`]);
 
@@ -53,11 +58,15 @@ export default function Home() {
       const balanceData = await fetchWalletBalances(address);
       setBalances(balanceData);
       addLog(`💰 Balance: ${balanceData.usdc} USDC`);
+
+      // Mark setup as complete for returning users
+      setSetupComplete(true);
     } catch (e: any) {
       addLog(`⚠️ Reconnection issue: ${e?.message || String(e)}`);
       try {
         const balanceData = await fetchWalletBalances(address);
         setBalances(balanceData);
+        setSetupComplete(true); // Still allow them to proceed
       } catch {}
     }
   };
@@ -78,6 +87,84 @@ export default function Home() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const checkAndFundWallet = async (address: string, currentBalances: { eth: string; usdc: string }) => {
+    const usdcBalance = parseFloat(currentBalances.usdc);
+    const ethBalance = parseFloat(currentBalances.eth);
+
+    const needsFunding = usdcBalance < 0.05 || ethBalance < 0.01;
+
+    if (!needsFunding) {
+      // Wallet has sufficient balance, mark setup as complete
+      setSetupComplete(true);
+      return;
+    }
+
+    try {
+      setIsFunding(true);
+      setFundingMessage('Requesting funds from faucet...');
+
+      addLog('');
+      addLog('💧 Low balance detected - requesting faucet funds...');
+      addLog(`Current: ${currentBalances.usdc} USDC, ${currentBalances.eth} ETH`);
+
+      const response = await axios.post('/api/faucet', {
+        walletAddress: address,
+        currentBalances
+      });
+
+      if (response.data.skipFaucet) {
+        // Faucet not configured or had an error, silently skip
+        if (response.data.error) {
+          addLog(`ℹ️ Faucet: ${response.data.error}`);
+        } else {
+          addLog('ℹ️ Faucet not configured - skipping auto-funding');
+        }
+        setIsFunding(false);
+        setFundingMessage('');
+        return;
+      }
+
+      if (response.data.funded) {
+        setFundingMessage('Faucet funding successful! Waiting for confirmation...');
+
+        addLog('✅ Faucet funding successful!');
+        response.data.transactions.forEach((tx: any) => {
+          addLog(`💰 Sent ${tx.amount} ${tx.type}`);
+          addLog(`📝 TX: ${tx.hash.substring(0, 20)}...`);
+        });
+
+        // Wait a bit for transactions to confirm, then refresh
+        addLog('⏳ Waiting for confirmation...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        const updatedBalances = await fetchWalletBalances(address);
+        setBalances(updatedBalances);
+        addLog(`✅ Updated balance: ${updatedBalances.usdc} USDC, ${updatedBalances.eth} ETH`);
+
+        setFundingMessage('Wallet funded successfully!');
+        setSetupComplete(true); // Setup complete immediately
+        setTimeout(() => {
+          setIsFunding(false);
+          setFundingMessage('');
+        }, 2000);
+      } else {
+        addLog('ℹ️ Wallet has sufficient balance');
+        setIsFunding(false);
+        setFundingMessage('');
+        setSetupComplete(true); // Setup complete (no funding needed)
+      }
+    } catch (e: any) {
+      const errorMsg = e?.response?.data?.error || e?.message || String(e);
+      addLog(`⚠️ Faucet unavailable: ${errorMsg}`);
+      setFundingMessage('Faucet not available. Please add funds manually.');
+      setSetupComplete(true); // Allow user to proceed immediately
+      setTimeout(() => {
+        setIsFunding(false);
+        setFundingMessage('');
+      }, 4000);
+    }
+  };
 
   const createAccount = async () => {
     if (!userEmail) {
@@ -115,9 +202,13 @@ export default function Home() {
 
         const balanceData = await fetchWalletBalances(address);
         setBalances(balanceData);
-        addLog(`Balance: ${balanceData.usdc} USDC`);
+        addLog(`Balance: ${balanceData.usdc} USDC, ${balanceData.eth} ETH`);
+
+        // Still check if wallet needs funding
+        await checkAndFundWallet(address, balanceData);
 
         setStatusMessage('Account created, but signing may not work without API key.');
+        setTimeout(() => setStatusMessage(''), 3000);
         return;
       }
 
@@ -139,7 +230,10 @@ export default function Home() {
 
       const balanceData = await fetchWalletBalances(cmWallet.address);
       setBalances(balanceData);
-      addLog(`💰 Balance: ${balanceData.usdc} USDC`);
+      addLog(`💰 Balance: ${balanceData.usdc} USDC, ${balanceData.eth} ETH`);
+
+      // Check if wallet needs funding from faucet
+      await checkAndFundWallet(cmWallet.address, balanceData);
 
       setStatusMessage('Account ready');
       setTimeout(() => setStatusMessage(''), 3000);
@@ -160,7 +254,10 @@ export default function Home() {
       addLog('Refreshing balance...');
       const balanceData = await fetchWalletBalances(walletAddress);
       setBalances(balanceData);
-      addLog(`Balance updated: ${balanceData.usdc} USDC`);
+      addLog(`Balance updated: ${balanceData.usdc} USDC, ${balanceData.eth} ETH`);
+
+      // Check if wallet needs funding
+      await checkAndFundWallet(walletAddress, balanceData);
     } catch (e: any) {
       addLog(`Failed to fetch balance: ${e?.message || String(e)}`);
     }
@@ -177,6 +274,9 @@ export default function Home() {
     setSuccessTweetUrl('');
     setTxHash('');
     setStatusMessage('');
+    setSetupComplete(false);
+    setIsFunding(false);
+    setFundingMessage('');
 
     // Clear localStorage
     localStorage.removeItem(STORAGE_KEY);
@@ -332,8 +432,17 @@ export default function Home() {
         if (error.response) {
           addLog(`Status: ${error.response.status}`);
           addLog(`Response: ${JSON.stringify(error.response.data).substring(0, 200)}`);
+
+          // Check if it's a Twitter permission error even with 500 status
+          if (error.response.data?.error?.includes('permission denied') ||
+              error.response.data?.error?.includes('403')) {
+            setStatusMessage('Twitter API permission error. Contact admin to fix app permissions.');
+          } else {
+            setStatusMessage('Something went wrong. Check Dev Logs for details.');
+          }
+        } else {
+          setStatusMessage('Something went wrong.');
         }
-        setStatusMessage('Something went wrong.');
       }
 
       addLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -485,8 +594,8 @@ export default function Home() {
             </p>
           </div>
 
-          {/* Account Setup - Show prominently if no wallet */}
-          {!wallet && (
+          {/* Account Setup - Show at top until setup is complete */}
+          {!setupComplete && (
             <div style={{
               background: '#FFFFFF',
               borderRadius: 4,
@@ -505,71 +614,115 @@ export default function Home() {
                 marginBottom: '1rem',
                 marginTop: 0
               }}>
-                Get Started
+                {!wallet ? 'Get Started' : 'Setting Up Your Account'}
               </h2>
-              <p style={{
-                fontSize: 15,
-                color: '#6B6B6B',
-                marginBottom: '2rem',
-                lineHeight: 1.6
-              }}>
-                Enter your email to create a secure payment account. Each tweet costs $0.001 USDC.
-              </p>
 
-              <input
-                type="email"
-                placeholder="your@email.com"
-                value={userEmail}
-                onChange={e => setUserEmail(e.target.value)}
-                onKeyPress={e => e.key === 'Enter' && createAccount()}
-                autoFocus
-                style={{
-                  padding: '14px 18px',
-                  width: '100%',
-                  boxSizing: 'border-box',
-                  border: '1px solid #E5E5E5',
-                  borderRadius: 4,
-                  fontSize: 16,
-                  marginBottom: '16px',
-                  fontFamily: "'Lato', sans-serif",
-                  textAlign: 'center'
-                }}
-              />
+              {!wallet ? (
+                <>
+                  <p style={{
+                    fontSize: 15,
+                    color: '#6B6B6B',
+                    marginBottom: '2rem',
+                    lineHeight: 1.6
+                  }}>
+                    Enter your email to create a secure payment account. Each tweet costs $0.001 USDC.
+                  </p>
 
-              <button
-                onClick={createAccount}
-                disabled={loading || !userEmail}
-                style={{
-                  padding: '14px 32px',
-                  background: (loading || !userEmail) ? '#FFFFFF' : '#1A1A1A',
-                  color: (loading || !userEmail) ? '#6B6B6B' : '#FFFFFF',
-                  border: '1px solid #E5E5E5',
-                  borderRadius: 4,
-                  fontSize: 16,
-                  fontWeight: 400,
-                  cursor: (loading || !userEmail) ? 'not-allowed' : 'pointer',
-                  width: '100%',
-                  fontFamily: "'Lato', sans-serif"
-                }}
-              >
-                {loading ? 'Creating Account...' : 'Create Account'}
-              </button>
+                  <input
+                    type="email"
+                    placeholder="your@email.com"
+                    value={userEmail}
+                    onChange={e => setUserEmail(e.target.value)}
+                    onKeyPress={e => e.key === 'Enter' && createAccount()}
+                    autoFocus
+                    style={{
+                      padding: '14px 18px',
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      border: '1px solid #E5E5E5',
+                      borderRadius: 4,
+                      fontSize: 16,
+                      marginBottom: '16px',
+                      fontFamily: "'Lato', sans-serif",
+                      textAlign: 'center'
+                    }}
+                  />
 
-              {statusMessage && !wallet && (
-                <div style={{
-                  marginTop: '16px',
-                  fontSize: 14,
-                  color: '#6B6B6B',
-                  textAlign: 'center'
-                }}>
-                  {statusMessage}
-                </div>
+                  <button
+                    onClick={createAccount}
+                    disabled={loading || !userEmail}
+                    style={{
+                      padding: '14px 32px',
+                      background: (loading || !userEmail) ? '#FFFFFF' : '#1A1A1A',
+                      color: (loading || !userEmail) ? '#6B6B6B' : '#FFFFFF',
+                      border: '1px solid #E5E5E5',
+                      borderRadius: 4,
+                      fontSize: 16,
+                      fontWeight: 400,
+                      cursor: (loading || !userEmail) ? 'not-allowed' : 'pointer',
+                      width: '100%',
+                      fontFamily: "'Lato', sans-serif"
+                    }}
+                  >
+                    {loading ? 'Creating Account...' : 'Create Account'}
+                  </button>
+
+                  {statusMessage && (
+                    <div style={{
+                      marginTop: '16px',
+                      fontSize: 14,
+                      color: '#6B6B6B',
+                      textAlign: 'center'
+                    }}>
+                      {statusMessage}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p style={{
+                    fontSize: 15,
+                    color: '#6B6B6B',
+                    marginBottom: '2rem',
+                    lineHeight: 1.6
+                  }}>
+                    {userEmail}
+                  </p>
+
+                  {isFunding && (
+                    <div style={{
+                      padding: '16px',
+                      background: '#FFF9E6',
+                      borderRadius: 4,
+                      border: '1px solid #FFE4A3',
+                      fontSize: 14,
+                      color: '#856404',
+                      marginBottom: '16px'
+                    }}>
+                      💧 {fundingMessage}
+                    </div>
+                  )}
+
+                  {!isFunding && balances && (
+                    <div style={{
+                      padding: '16px',
+                      background: '#F0FDF4',
+                      borderRadius: 4,
+                      border: '1px solid #86EFAC',
+                      fontSize: 14,
+                      color: '#2D7A3E',
+                      marginBottom: '16px'
+                    }}>
+                      ✓ Account ready! Balance: ${balances.usdc} USDC
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
 
-          {/* Tweet Composer - Only show after account creation */}
-          {wallet && (
+          {/* Tweet Composer - Only show after setup is complete */}
+          {setupComplete && (
             <div style={{
               background: '#FFFFFF',
               borderRadius: 4,
@@ -718,8 +871,8 @@ export default function Home() {
           </div>
           )}
 
-          {/* Account Status - Show after account creation */}
-          {wallet && (
+          {/* Account Status - Show after setup is complete */}
+          {setupComplete && wallet && (
             <div style={{
               background: '#FFFFFF',
               borderRadius: 4,
@@ -808,14 +961,18 @@ export default function Home() {
                 </div>
               </div>
 
-              {!hasBalance && (
+              {!hasBalance && balances && (
                 <div style={{
                   marginTop: '12px',
                   fontSize: 13,
                   color: '#C53030',
                   textAlign: 'center'
                 }}>
-                  Low balance. Add USDC to send tweets.
+                  {parseFloat(balances.usdc) < 0.001 && parseFloat(balances.eth) < 0.0001
+                    ? 'Low balance. Need USDC and ETH.'
+                    : parseFloat(balances.usdc) < 0.001
+                    ? 'Low USDC balance.'
+                    : 'Low ETH for gas fees.'}
                 </div>
               )}
 

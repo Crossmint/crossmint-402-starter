@@ -49,19 +49,25 @@ export async function POST(req: NextRequest) {
 
   } catch (error: any) {
     let errorMessage = 'Failed to send tweet';
+    let statusCode = 500;
+
     if (error.code === 403) {
       errorMessage = 'Twitter API permission denied. Check app has Read and Write permissions.';
+      statusCode = 403;
     } else if (error.code === 401) {
       errorMessage = 'Twitter API authentication failed. Verify API keys.';
+      statusCode = 401;
     } else if (error.code === 429) {
       errorMessage = 'Twitter API rate limit exceeded. Try again later.';
+      statusCode = 429;
     } else {
       errorMessage = `Twitter API error: ${error?.message || String(error)}`;
+      statusCode = 500;
     }
 
     return NextResponse.json(
       { error: errorMessage, details: error?.message },
-      { status: 500 }
+      { status: statusCode }
     );
   }
 }
