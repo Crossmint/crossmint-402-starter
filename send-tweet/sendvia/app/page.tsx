@@ -386,7 +386,12 @@ export default function Home() {
 
       addLog('🔐 Step 1: Creating x402 signer from Crossmint wallet');
       const evmWallet = EVMWallet.from(wallet);
-      const signer = createX402Signer(evmWallet);
+      addLog(`  Wallet type: ${wallet.type}`);
+      addLog(`  Wallet address: ${evmWallet.address}`);
+      addLog(`  Wallet deployed: ${isDeployed}`);
+      addLog(`  Chain: ${evmWallet.chain?.name || 'base-sepolia'}`);
+      
+      const signer = createX402Signer(wallet);
       addLog('  ✓ x402 signer created successfully');
       addLog('');
 

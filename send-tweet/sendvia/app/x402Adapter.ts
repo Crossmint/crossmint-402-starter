@@ -37,7 +37,23 @@ export function createX402Signer(wallet: Wallet<any>): Signer {
         chain: evm.chain as any
       } as any);
 
-      return processSignature(sig.signature as string);
+      console.log("📝 Raw signature from Crossmint:", {
+        signature: sig.signature,
+        length: sig.signature?.length,
+        prefix: sig.signature?.substring(0, 20)
+      });
+
+      const processedSig = processSignature(sig.signature as string);
+      
+      console.log("✅ Processed signature for x402:", {
+        signature: processedSig,
+        length: processedSig.length,
+        prefix: processedSig.substring(0, 20),
+        isERC6492: isERC6492Signature(processedSig),
+        isEIP1271: processedSig.length === 174
+      });
+
+      return processedSig;
     }
   };
 
@@ -55,6 +71,8 @@ function processSignature(rawSignature: string): `0x${string}` {
   // Handle ERC-6492 wrapped signatures (for pre-deployed wallets)
   if (isERC6492Signature(signature)) {
     console.log("✅ ERC-6492 signature detected - keeping for facilitator");
+    console.log(`   Length: ${signature.length} chars`);
+    console.log(`   Suffix: ...${signature.substring(signature.length - 70)}`);
     return signature;
   }
 
@@ -66,18 +84,25 @@ function processSignature(rawSignature: string): `0x${string}` {
 
   // Handle standard ECDSA signatures (65 bytes / 132 hex chars)
   if (signature.length === 132) {
-    console.log("✅ Standard ECDSA signature");
+    console.log("✅ Standard ECDSA signature (65 bytes)");
     return signature;
   }
 
   // Handle non-standard lengths - try to extract standard signature
   if (signature.length > 132) {
-    const extracted = '0x' + signature.slice(-130);
-    console.log(`🔧 Extracted standard signature from longer format`);
-    return extracted as `0x${string}`;
+    console.log(`⚠️ Non-standard signature length: ${signature.length} chars`);
+    console.log(`   Full signature: ${signature}`);
+    
+    // Don't extract - return as is for now to debug
+    // const extracted = '0x' + signature.slice(-130);
+    // console.log(`🔧 Extracted standard signature from longer format`);
+    // return extracted as `0x${string}`;
+    
+    console.log(`🔧 Keeping full signature (may be ERC-6492 or other format)`);
+    return signature;
   }
 
-  console.log("⚠️ Using signature as-is");
+  console.log(`⚠️ Unusual signature length (${signature.length}), using as-is`);
   return signature;
 }
 
