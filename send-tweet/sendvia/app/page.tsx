@@ -11,6 +11,7 @@ import './globals.css';
 
 const TWITTER_CHAR_LIMIT = 280;
 const STORAGE_KEY = 'sendvia_account';
+const SERVER_URL = process.env.NEXT_PUBLIC_SENDVIA_SERVER_URL || 'http://localhost:3200';
 
 export default function Home() {
   const [userEmail, setUserEmail] = useState('');
@@ -189,7 +190,7 @@ export default function Home() {
     try {
       addLog('Creating account...');
 
-      const response = await axios.post('/api/wallet/init', { email: userEmail });
+      const response = await axios.post(`${SERVER_URL}/wallet/init`, { email: userEmail });
       const { address } = response.data;
 
       addLog(`✓ Account created: ${address}`);
@@ -397,7 +398,7 @@ export default function Home() {
       addLog('');
 
       addLog('🔌 Step 2: Setting up payment interceptor');
-      const axiosInstance = axios.create({ baseURL: '/api' });
+      const axiosInstance = axios.create({ baseURL: SERVER_URL });
 
       // Add request interceptor for logging
       axiosInstance.interceptors.request.use((config) => {
