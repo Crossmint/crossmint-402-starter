@@ -131,6 +131,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: ['/api/tweet'],
-  runtime: 'nodejs' // Use Node.js runtime instead of Edge
+  // runtime: 'nodejs' // Use Node.js runtime instead of Edge
 };
 
