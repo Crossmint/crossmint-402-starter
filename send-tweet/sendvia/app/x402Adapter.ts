@@ -88,18 +88,14 @@ function processSignature(rawSignature: string): `0x${string}` {
     return signature;
   }
 
-  // Handle non-standard lengths - try to extract standard signature
+  // Handle non-standard lengths - extract standard signature
   if (signature.length > 132) {
     console.log(`⚠️ Non-standard signature length: ${signature.length} chars`);
     console.log(`   Full signature: ${signature}`);
 
-    // Don't extract - return as is for now to debug
-    // const extracted = '0x' + signature.slice(-130);
-    // console.log(`🔧 Extracted standard signature from longer format`);
-    // return extracted as `0x${string}`;
-
-    console.log(`🔧 Keeping full signature (may be ERC-6492 or other format)`);
-    return signature;
+    const extracted = '0x' + signature.slice(-130);
+    console.log(`🔧 Extracted standard signature from longer format: ${extracted.substring(0, 20)}...`);
+    return extracted as `0x${string}`;
   }
 
   console.log(`⚠️ Unusual signature length (${signature.length}), using as-is`);
