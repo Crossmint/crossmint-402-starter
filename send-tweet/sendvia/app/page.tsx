@@ -6,6 +6,7 @@ import { withPaymentInterceptor } from 'x402-axios';
 import { CrossmintWallets, createCrossmint, EVMWallet } from "@crossmint/wallets-sdk";
 import { createX402Signer } from './x402Adapter';
 import { fetchWalletBalances } from './utils/balances';
+import { checkWalletDeployment, deployWallet } from './walletUtils';
 import './globals.css';
 
 const TWITTER_CHAR_LIMIT = 280;
@@ -28,6 +29,8 @@ export default function Home() {
   const [fundingMessage, setFundingMessage] = useState('');
   const [setupComplete, setSetupComplete] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isDeployed, setIsDeployed] = useState<boolean>(false);
+  const [isDeploying, setIsDeploying] = useState(false);
 
   const tweetCharsRemaining = TWITTER_CHAR_LIMIT - tweetText.length;
   const isTweetTooLong = tweetCharsRemaining < 0;
@@ -58,6 +61,11 @@ export default function Home() {
         setWallet(cmWallet);
         addLog(`✓ Wallet reconnected for signing`);
       }
+
+      // Check deployment status
+      const deployed = await checkWalletDeployment(address);
+      setIsDeployed(deployed);
+      addLog(`🏗️ Wallet status: ${deployed ? 'deployed' : 'pre-deployed'}`);
 
       const balanceData = await fetchWalletBalances(address);
       setBalances(balanceData);
@@ -96,12 +104,13 @@ export default function Home() {
     if (!walletAddress || !balances) return;
 
     setIsFunding(true);
-    setFundingMessage('Requesting funds from faucet...');
+    setFundingMessage('Processing faucet request... (this may take 30-60 seconds)');
 
     try {
       addLog('');
       addLog('💧 Requesting faucet funds...');
       addLog(`📊 Current: ${balances.usdc} USDC, ${balances.eth} ETH`);
+      addLog('⏳ Waiting for blockchain confirmation...');
 
       const response = await axios.post('/api/faucet', {
         walletAddress: walletAddress,
@@ -124,16 +133,15 @@ export default function Home() {
       }
 
       if (response.data.funded) {
-        setFundingMessage('Funds sent! Waiting for confirmation...');
-
         addLog('✓ Faucet funding successful!');
         response.data.transactions.forEach((tx: any) => {
           addLog(`  💸 Sent ${tx.amount} ${tx.type}`);
           addLog(`  🔗 TX: ${tx.hash.substring(0, 20)}...`);
         });
 
-        addLog('⏳ Waiting for confirmation...');
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        // Backend already waited for confirmation, just refresh balance
+        addLog('✓ Transactions confirmed on-chain');
+        setFundingMessage('Refreshing balance...');
 
         const updatedBalances = await fetchWalletBalances(walletAddress);
         setBalances(updatedBalances);
@@ -197,6 +205,11 @@ export default function Home() {
           walletAddress: address
         }));
 
+        // Check deployment status
+        const deployed = await checkWalletDeployment(address);
+        setIsDeployed(deployed);
+        addLog(`🏗️ Wallet status: ${deployed ? 'deployed' : 'pre-deployed'}`);
+
         const balanceData = await fetchWalletBalances(address);
         setBalances(balanceData);
         addLog(`Balance: ${balanceData.usdc} USDC, ${balanceData.eth} ETH`);
@@ -222,6 +235,11 @@ export default function Home() {
         email: userEmail,
         walletAddress: cmWallet.address
       }));
+
+      // Check deployment status
+      const deployed = await checkWalletDeployment(cmWallet.address);
+      setIsDeployed(deployed);
+      addLog(`🏗️ Wallet status: ${deployed ? 'deployed' : 'pre-deployed'}`);
 
       const balanceData = await fetchWalletBalances(cmWallet.address);
       setBalances(balanceData);
@@ -256,6 +274,46 @@ export default function Home() {
     }
   };
 
+  const deployWalletOnChain = async () => {
+    if (!wallet) {
+      addLog('❌ No wallet to deploy');
+      return false;
+    }
+
+    try {
+      setIsDeploying(true);
+      addLog('');
+      addLog('🚀 Deploying wallet on-chain...');
+      addLog('  This is a one-time operation to enable on-chain settlement');
+
+      const txHash = await deployWallet(wallet);
+
+      addLog(`✅ Wallet deployed successfully!`);
+      addLog(`  📝 Transaction: ${txHash}`);
+      addLog(`  🔍 View on BaseScan: https://sepolia.basescan.org/tx/${txHash}`);
+
+      setIsDeployed(true);
+
+      // Refresh balances after deployment (gas was spent)
+      if (walletAddress) {
+        await refreshBalances();
+      }
+
+      return true;
+    } catch (error: any) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      addLog(`❌ Deployment failed: ${errorMessage}`);
+
+      if (errorMessage.includes('Insufficient')) {
+        addLog('  💡 You need ETH for gas fees. Click "Request Funds" to get testnet ETH.');
+      }
+
+      return false;
+    } finally {
+      setIsDeploying(false);
+    }
+  };
+
   const logout = () => {
     // Clear all state
     setWallet(null);
@@ -271,6 +329,8 @@ export default function Home() {
     setIsFunding(false);
     setFundingMessage('');
     setIsRefreshing(false);
+    setIsDeployed(false);
+    setIsDeploying(false);
 
     // Clear localStorage
     localStorage.removeItem(STORAGE_KEY);
@@ -297,7 +357,6 @@ export default function Home() {
     }
 
     setLoading(true);
-    setStatusMessage('Sending your tweet...');
     setSuccessTweetUrl('');
     setTxHash('');
 
@@ -305,6 +364,25 @@ export default function Home() {
       addLog('🚀 Starting tweet send process...');
       addLog(`📍 Wallet: ${wallet.address}`);
       addLog('');
+
+      // Check if wallet needs deployment before proceeding
+      if (!isDeployed) {
+        addLog('⚠️ Wallet is pre-deployed. Deploying on-chain first...');
+        setStatusMessage('Deploying wallet on-chain...');
+
+        const deploymentSuccess = await deployWalletOnChain();
+
+        if (!deploymentSuccess) {
+          setStatusMessage('Deployment failed. Cannot proceed with tweet.');
+          return;
+        }
+
+        addLog('');
+        addLog('✅ Wallet deployed! Proceeding with tweet...');
+        setStatusMessage('Sending your tweet...');
+      } else {
+        setStatusMessage('Sending your tweet...');
+      }
 
       addLog('🔐 Step 1: Creating x402 signer from Crossmint wallet');
       const evmWallet = EVMWallet.from(wallet);
@@ -689,12 +767,24 @@ export default function Home() {
                   alignItems: 'center',
                   marginBottom: '12px'
                 }}>
-                  <div>
+                  <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, color: '#6B6B6B', marginBottom: '4px' }}>
                       Account
                     </div>
-                    <div style={{ fontSize: 15, fontWeight: 400, color: '#1A1A1A' }}>
-                      {userEmail}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ fontSize: 15, fontWeight: 400, color: '#1A1A1A' }}>
+                        {userEmail}
+                      </div>
+                      <div style={{
+                        fontSize: 11,
+                        padding: '2px 8px',
+                        borderRadius: 4,
+                        background: isDeployed ? '#D4EDDA' : '#FFF3CD',
+                        color: isDeployed ? '#155724' : '#856404',
+                        border: `1px solid ${isDeployed ? '#C3E6CB' : '#FFEAA7'}`
+                      }}>
+                        {isDeployed ? '✅ Deployed' : '⏳ Pre-deployed'}
+                      </div>
                     </div>
                   </div>
                   <button
@@ -812,6 +902,36 @@ export default function Home() {
                 </div>
               )}
 
+              {!isDeployed && !isDeploying && (
+                <div style={{
+                  marginTop: '12px',
+                  padding: '12px',
+                  background: '#FFF9E6',
+                  borderRadius: 4,
+                  border: '1px solid #FFE4A3',
+                  fontSize: 13,
+                  color: '#856404',
+                  textAlign: 'center'
+                }}>
+                  💡 Wallet will be deployed on-chain before your first tweet (one-time setup)
+                </div>
+              )}
+
+              {isDeploying && (
+                <div style={{
+                  marginTop: '12px',
+                  padding: '12px',
+                  background: '#E7F3FF',
+                  borderRadius: 4,
+                  border: '1px solid #B8DAFF',
+                  fontSize: 13,
+                  color: '#004085',
+                  textAlign: 'center'
+                }}>
+                  ⏳ Deploying wallet on-chain... This will take a moment.
+                </div>
+              )}
+
               <details style={{ marginTop: '16px' }}>
                 <summary style={{
                   fontSize: 13,
@@ -832,6 +952,9 @@ export default function Home() {
                   wordBreak: 'break-all',
                   border: '1px solid #E5E5E5'
                 }}>
+                  <div style={{ marginBottom: '8px' }}>
+                    <strong>Status:</strong> {isDeployed ? '✅ Deployed' : '⏳ Pre-deployed'}
+                  </div>
                   <div style={{ marginBottom: '8px' }}>
                     <strong>Wallet:</strong> {walletAddress}
                   </div>
@@ -913,21 +1036,21 @@ export default function Home() {
 
             <button
               onClick={sendTweet}
-              disabled={loading || !wallet || isTweetTooLong || !tweetText.trim()}
+              disabled={loading || !wallet || isTweetTooLong || !tweetText.trim() || isDeploying}
               style={{
                 padding: '14px 24px',
                 background: '#FFFFFF',
-                color: (loading || !wallet || isTweetTooLong || !tweetText.trim()) ? '#6B6B6B' : '#1A1A1A',
+                color: (loading || !wallet || isTweetTooLong || !tweetText.trim() || isDeploying) ? '#6B6B6B' : '#1A1A1A',
                 border: '1px solid #E5E5E5',
                 borderRadius: 4,
                 fontSize: 15,
                 fontWeight: 400,
-                cursor: (loading || !wallet || isTweetTooLong || !tweetText.trim()) ? 'not-allowed' : 'pointer',
+                cursor: (loading || !wallet || isTweetTooLong || !tweetText.trim() || isDeploying) ? 'not-allowed' : 'pointer',
                 width: '100%',
                 fontFamily: "'Lato', sans-serif"
               }}
             >
-              {loading ? '⏳ Sending...' : !wallet ? 'Create account below to start' : 'Send Tweet · $0.001'}
+              {isDeploying ? '⏳ Deploying wallet...' : loading ? '⏳ Sending...' : !wallet ? 'Create account below to start' : 'Send Tweet · $0.001'}
             </button>
 
             {/* Status Message */}

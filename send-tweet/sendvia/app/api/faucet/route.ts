@@ -4,7 +4,7 @@ import { baseSepolia } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 
 const USDC_ADDRESS = '0x036CbD53842c5426634e7929541eC2318f3dCF7e'; // Base Sepolia USDC
-const MIN_USDC_BALANCE = 0.05; 
+const MIN_USDC_BALANCE = 0.05;
 const MIN_ETH_BALANCE = 0.001;
 
 const USDC_ABI = [
@@ -76,16 +76,18 @@ export async function POST(req: NextRequest) {
 
     const transactions: { type: string; hash: string; amount: string }[] = [];
 
-    // Get current nonce for sequential transactions
-    let currentNonce = await publicClient.getTransactionCount({
+    // Get current nonce - use 'latest' to avoid pending transaction conflicts
+    const currentNonce = await publicClient.getTransactionCount({
       address: account.address,
-      blockTag: 'pending' // Include pending transactions
+      blockTag: 'latest'
     });
 
     // Send USDC if needed
     if (needsUSDC) {
       const usdcAmount = process.env.FAUCET_USDC_AMOUNT || '1';
       const amountToSend = parseUnits(usdcAmount, 6); // USDC has 6 decimals
+
+      console.log(`[Faucet] Sending ${usdcAmount} USDC to ${walletAddress} with nonce ${currentNonce}`);
 
       const hash = await walletClient.writeContract({
         address: USDC_ADDRESS,
@@ -95,25 +97,53 @@ export async function POST(req: NextRequest) {
         nonce: currentNonce
       } as any);
 
+      console.log(`[Faucet] USDC transaction sent: ${hash}`);
+
+      // Wait for USDC transaction to be confirmed
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash,
+        confirmations: 1,
+        timeout: 60_000 // 60 second timeout
+      });
+
+      console.log(`[Faucet] USDC transaction confirmed in block ${receipt.blockNumber}`);
+
       transactions.push({
         type: 'USDC',
         hash,
         amount: usdcAmount
       });
-
-      currentNonce++; // Increment for next transaction
     }
 
-    // Send ETH if needed
+    // Send ETH if needed (using next nonce if USDC was sent)
     if (needsETH) {
       const ethAmount = process.env.FAUCET_ETH_AMOUNT || '0.01';
       const amountToSend = parseEther(ethAmount);
 
+      // Get fresh nonce after USDC confirmation
+      const ethNonce = await publicClient.getTransactionCount({
+        address: account.address,
+        blockTag: 'latest'
+      });
+
+      console.log(`[Faucet] Sending ${ethAmount} ETH to ${walletAddress} with nonce ${ethNonce}`);
+
       const hash = await walletClient.sendTransaction({
         to: walletAddress as `0x${string}`,
         value: amountToSend,
-        nonce: currentNonce
+        nonce: ethNonce
       } as any);
+
+      console.log(`[Faucet] ETH transaction sent: ${hash}`);
+
+      // Wait for ETH transaction to be confirmed
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash,
+        confirmations: 1,
+        timeout: 60_000 // 60 second timeout
+      });
+
+      console.log(`[Faucet] ETH transaction confirmed in block ${receipt.blockNumber}`);
 
       transactions.push({
         type: 'ETH',
@@ -129,17 +159,21 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error: any) {
-    console.error('Faucet error:', error);
+    console.error('[Faucet] Error details:', error);
 
     // Return user-friendly error messages
     let errorMessage = 'Failed to fund wallet';
 
-    if (error?.message?.includes('nonce')) {
-      errorMessage = 'Pending transaction detected. Please try again in a moment.';
+    if (error?.message?.includes('timeout') || error?.message?.includes('timed out')) {
+      errorMessage = 'Transaction is taking longer than expected. It may still complete. Please check your balance in a minute.';
+    } else if (error?.message?.includes('nonce')) {
+      errorMessage = 'Nonce conflict detected. Please wait 30 seconds and try again.';
     } else if (error?.message?.includes('insufficient funds')) {
-      errorMessage = 'Faucet wallet has insufficient funds. Please refill the faucet.';
+      errorMessage = 'Faucet wallet has insufficient funds. Please contact support to refill the faucet.';
     } else if (error?.message?.includes('replacement transaction underpriced')) {
-      errorMessage = 'Transaction in progress. Please wait a moment and try again.';
+      errorMessage = 'Transaction already in progress. Please wait 30 seconds and try again.';
+    } else if (error?.message?.includes('gas')) {
+      errorMessage = 'Gas estimation failed. The network may be congested. Please try again.';
     } else {
       errorMessage = error?.message || 'Failed to fund wallet';
     }
