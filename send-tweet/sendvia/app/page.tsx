@@ -389,8 +389,9 @@ export default function Home() {
       addLog(`  Wallet type: ${wallet.type}`);
       addLog(`  Wallet address: ${evmWallet.address}`);
       addLog(`  Wallet deployed: ${isDeployed}`);
-      addLog(`  Chain: ${evmWallet.chain?.name || 'base-sepolia'}`);
-      
+      const chainInfo = typeof evmWallet.chain === 'string' ? evmWallet.chain : ((evmWallet.chain as any)?.name || 'unknown');
+      addLog(`  Chain: ${chainInfo}`);
+
       const signer = createX402Signer(wallet);
       addLog('  ✓ x402 signer created successfully');
       addLog('');
