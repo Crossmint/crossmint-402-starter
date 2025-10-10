@@ -479,6 +479,12 @@ export default function Home() {
       if (error.response?.status === 402) {
         addLog('💔 Payment verification failed');
         addLog(`  Status: ${error.response.status} Payment Required`);
+
+        // Log the actual error details from server
+        if (error.response?.data) {
+          addLog(`  Server response: ${JSON.stringify(error.response.data)}`);
+        }
+
         addLog('  Possible causes:');
         addLog('    • Insufficient USDC balance');
         addLog('    • Wallet not properly initialized');
