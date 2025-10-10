@@ -10,7 +10,7 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT ? Number(process.env.PORT) : 3200;
 const payTo = process.env.MERCHANT_ADDRESS || "0x2bA11889a65DEC5467530A8C204d45EE6F8497e7";
-const network = (process.env.X402_NETWORK || "base-sepolia") as Parameters<typeof paymentMiddleware>[1][keyof Parameters<typeof paymentMiddleware>[1]]["network"];
+const network = (process.env.X402_NETWORK || "base-sepolia") as any;
 
 // Validate required env
 if (!/^0x[a-fA-F0-9]{40}$/.test(payTo)) {
