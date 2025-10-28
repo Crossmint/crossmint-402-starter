@@ -1,0 +1,3 @@
+[submodule "external/worldstore-agent"]
+	path = external/worldstore-agent
+	url = https://github.com/crossmint/worldstore-agent
