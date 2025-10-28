@@ -9,4 +9,4 @@
 7. [`send-tweet`](./send-tweet/): A2A agent that posts tweets via Twitter API v2 after verifying USDC payment using direct-transfer scheme
 8. [`weather`](./weather/): Express TypeScript server with x402 paywall requiring USDC payment to access `/weather?city=CITY` endpoint
 9. [`worldstore-agent`↗️](https://github.com/crossmint/worldstore-agent): XMTP AI agent for purchasing Amazon products with gasless USDC payments on Base using Claude Sonnet 4 and Crossmint integration
-10. [`x402-ad-agent`↗️](https://github.com/Must-be-Ash/x402-ad-agent/): Autonomous AI bidding system where Claude-powered agents compete for advertising space using blockchain payments through x402 protocol with real-time refund-as-signal pattern
+10. [`x402-ad-agent`↗️](https://github.com/Must-be-Ash/x402-ad-agent/tree/d030c3b749faa53488d69422ad1effed014595a2): Autonomous AI bidding system where Claude-powered agents compete for advertising space using blockchain payments through x402 protocol with real-time refund-as-signal pattern
