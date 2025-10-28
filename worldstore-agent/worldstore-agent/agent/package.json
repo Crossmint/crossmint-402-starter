@@ -1,0 +1,79 @@
+{
+  "name": "agent",
+  "version": "1.0.0",
+  "description": "A collection of example recipes and integrations using Crossmint services",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "echo 'using tsx directly'",
+    "dev": "tsx --watch index.ts",
+    "start": "tsx index.ts",
+    "prod": "tsx index.ts",
+    "gen:keys": "tsx scripts/generateKeys.ts",
+    "migrate": "tsx scripts/migrate.ts migrate",
+    "migrate:rollback": "tsx scripts/migrate.ts rollback",
+    "lint": "eslint . --fix",
+    "lint:check": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "type:check": "pnpm -r run type-check",
+    "clean": "pnpm -r run clean && rm -rf node_modules"
+  },
+  "dependencies": {
+    "@anthropic-ai/bedrock-sdk": "^0.10.2",
+    "@anthropic-ai/sdk": "^0.27.3",
+    "@anthropic-ai/vertex-sdk": "^0.4.1",
+    "@goat-sdk/adapter-langchain": "^0.2.12",
+    "@goat-sdk/core": "^0.5.0",
+    "@goat-sdk/wallet-viem": "^0.3.0",
+    "@langchain/anthropic": "^0.3.25",
+    "@langchain/core": "^0.3.66",
+    "@langchain/langgraph": "^0.2.74",
+    "@xmtp/content-type-primitives": "^2.0.2",
+    "@xmtp/content-type-reaction": "^2.0.2",
+    "@xmtp/content-type-wallet-send-calls": "^2.0.0",
+    "@xmtp/node-sdk": "^3.2.2",
+    "dotenv": "^16.4.5",
+    "ioredis": "^5.6.1",
+    "prebuilt": "link:@langchain/langgraph/prebuilt",
+    "redis": "^4.7.0",
+    "serpapi": "^2.2.1",
+    "uint8arrays": "^5.1.0",
+    "viem": "^2.33.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=8.0.0"
+  },
+  "keywords": [
+    "crossmint",
+    "cookbook",
+    "recipes",
+    "recipes",
+    "blockchain",
+    "nft",
+    "payments",
+    "web3"
+  ],
+  "author": "Crossmint",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/crossmint/crossmint-cookbook.git"
+  },
+  "bugs": {
+    "url": "https://github.com/crossmint/crossmint-cookbook/issues"
+  },
+  "homepage": "https://github.com/crossmint/crossmint-cookbook#readme"
+}
